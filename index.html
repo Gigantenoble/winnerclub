@@ -145,6 +145,18 @@
   window.loadUserData = async function(){
     if(!window.S.currentUser) return;
     const uid = window.S.currentUser.id;
+    // Always load latest config from Firestore
+    try{
+      const cfgDoc = await getDoc(doc(db,'config','main'));
+      if(cfgDoc.exists()){
+        const cfg = cfgDoc.data();
+        if(cfg.cbuHolder){ window.cbuConfig.holder=cfg.cbuHolder; const el=document.getElementById('dep-cbu-holder'); if(el) el.textContent=cfg.cbuHolder; }
+        if(cfg.cbuNumber){ window.cbuConfig.number=cfg.cbuNumber; const el=document.getElementById('dep-cbu-display'); if(el) el.textContent=cfg.cbuNumber; }
+        if(cfg.gamesUrl){ window.gamesConfig.url=cfg.gamesUrl; const el=document.getElementById('games-link-display'); if(el) el.textContent=cfg.gamesUrl.replace(/https?:\/\//,''); }
+        if(cfg.gamesLabel){ window.gamesConfig.label=cfg.gamesLabel; const el=document.getElementById('games-btn-label'); if(el) el.textContent=cfg.gamesLabel; }
+        if(cfg.whatsapp) window.S.whatsappSupportLink=cfg.whatsapp;
+      }
+    }catch(e){ console.error('Config load error:',e); }
     // Load requests
     const reqSnap = await getDocs(collection(db,'requests'));
     window.S.requests = [];
@@ -1715,16 +1727,23 @@ async function submitTicket(){
 async function createUser(){
   const username=document.getElementById('new-user').value.trim(),pass=document.getElementById('new-pass').value,role=document.getElementById('new-role').value;
   if(!username||!pass){toast('Completá todos los campos','⚠️');return;}
-  if(S.users.find(u=>u.username===username)){toast('Usuario ya existe','⚠️');return;}
+  if(pass.length < 6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
+  // Check in Firestore if username already exists
   try{
+    const {getDocs,collection} = window.fbFns;
+    const snap = await getDocs(collection(window.fbDb,'users'));
+    let exists = false;
+    snap.forEach(d => {
+      if(d.data().username && d.data().username.toLowerCase() === username.toLowerCase()) exists = true;
+    });
+    if(exists){toast('El usuario "'+username+'" ya existe','⚠️');return;}
     await window.createUserFirebase(username, pass, role, '', '');
     closeModal('user-modal');
     document.getElementById('new-user').value='';document.getElementById('new-pass').value='';
     await window.loadAdminData();
-    toast('Jugador creado','✓');
+    toast('Jugador "'+username+'" creado exitosamente','✓');
   }catch(e){
-    if(e.code==='auth/email-already-in-use'){toast('Usuario ya existe','⚠️');}
-    else{toast('Error al crear usuario: '+e.message,'⚠️');}
+    toast('Error al crear usuario: '+e.message,'⚠️');
     console.error(e);
   }
 }
