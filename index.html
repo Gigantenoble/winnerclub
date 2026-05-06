@@ -1711,7 +1711,7 @@ function ticketBadge(status){
 // ======= STATE =======
 const TODAY=nowDate();
 let statusFilter='all',typeFilter='all',chpassTargetId=null,activeChatTicketId=null;
-let gamesConfig={url:'https://Acceso directo',label:'Juegos'};
+let gamesConfig={url:'https://winnerclub.games',label:'Juegos'};
 let cbuConfig={holder:'WinnerClub S.A.',number:'0000000000000000000000'};
 
 // S is initialized early as window.S — just reference it here
@@ -1791,11 +1791,11 @@ function cbuCell(c){if(!c)return '<span style="color:var(--text3);font-size:12px
 function viewImg(src){document.getElementById('img-modal-src').src=src;openModal('img-modal');}
 function actionButtons(req,mini){
   const id=req.id,s=req.status;
-  const bChat=`<button class="btn-chat-req" onclick="openRequestChat(${id})">💬 Chat</button>`;
-  if(mini)return `<div class="action-cell">${bChat}<button class="btn-done" onclick="changeStatusAndRefresh(${id},'approved')">✓ Realizado</button><button class="btn-reject" onclick="changeStatusAndRefresh(${id},'rejected')">✗ Rechazar</button></div>`;
-  const bA=s==='approved'?`<button class="btn-done" style="opacity:0.35;cursor:default">✓ Realizado</button>`:`<button class="btn-done" onclick="changeStatus(${id},'approved')">✓ Realizado</button>`;
-  const bP=s==='pending'?`<button class="btn-pending-action" style="opacity:0.35;cursor:default">⏳ En Proceso</button>`:`<button class="btn-pending-action" onclick="changeStatus(${id},'pending')">⏳ En Proceso</button>`;
-  const bR=s==='rejected'?`<button class="btn-reject" style="opacity:0.35;cursor:default">✗ Rechazado</button>`:`<button class="btn-reject" onclick="changeStatus(${id},'rejected')">✗ Rechazar</button>`;
+  const bChat=`<button class="btn-chat-req" onclick="openRequestChat('${id}')">💬 Chat</button>`;
+  if(mini)return `<div class="action-cell">${bChat}<button class="btn-done" onclick="changeStatusAndRefresh('${id}','approved')">✓ Realizado</button><button class="btn-reject" onclick="changeStatusAndRefresh('${id}','rejected')">✗ Rechazar</button></div>`;
+  const bA=s==='approved'?`<button class="btn-done" style="opacity:0.35;cursor:default">✓ Realizado</button>`:`<button class="btn-done" onclick="changeStatus('${id}','approved')">✓ Realizado</button>`;
+  const bP=s==='pending'?`<button class="btn-pending-action" style="opacity:0.35;cursor:default">⏳ En Proceso</button>`:`<button class="btn-pending-action" onclick="changeStatus('${id}','pending')">⏳ En Proceso</button>`;
+  const bR=s==='rejected'?`<button class="btn-reject" style="opacity:0.35;cursor:default">✗ Rechazado</button>`:`<button class="btn-reject" onclick="changeStatus('${id}','rejected')">✗ Rechazar</button>`;
   return `<div class="action-cell">${bChat}${bA}${bP}${bR}</div>`;
 }
 
@@ -1804,7 +1804,7 @@ function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 function openPassModal(){document.getElementById('pass-cur').value='';document.getElementById('pass-new').value='';document.getElementById('pass-confirm').value='';document.getElementById('pass-bar').style.width='0';document.getElementById('pass-lbl').textContent='';openModal('pass-modal');}
 function openDatosModal(){const u=S.currentUser;document.getElementById('dat-nombre').value=u.nombre||'';document.getElementById('dat-tel').value=u.telefono||'';openModal('datos-modal');}
-function openChpassModal(uid){chpassTargetId=uid;const u=userByid(uid);document.getElementById('chpass-username').textContent=u.username;document.getElementById('chpass-new').value='';document.getElementById('chpass-confirm').value='';openModal('chpass-modal');}
+function openChpassModal(uid){chpassTargetId=String(uid);const u=userByid(uid);document.getElementById('chpass-username').textContent=u.username;document.getElementById('chpass-new').value='';document.getElementById('chpass-confirm').value='';openModal('chpass-modal');}
 
 // ======= SUBMIT =======
 async function submitDeposit(){
@@ -1887,22 +1887,30 @@ async function createUser(){
 async function saveAdminPass(){
   const np=document.getElementById('chpass-new').value,cp=document.getElementById('chpass-confirm').value;
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
+  if(np.length<6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
   try{
-    // Update password in Firestore (admin sets it; actual Firebase Auth update requires user to be signed in)
-    await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',chpassTargetId),{passwordHint:'changed'});
-    closeModal('chpass-modal');toast('Contraseña actualizada. El usuario deberá iniciar sesión con la nueva contraseña.','✓');
+    await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(chpassTargetId)),{password:np});
+    closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
   }catch(e){toast('Error al cambiar contraseña','⚠️');console.error(e);}
 }
 
 // ======= CHAT — mensajes del logueado a la DERECHA, del otro a la IZQUIERDA =======
 function openChat(ticketId,isAdmin){
-  const tkt=S.tickets.find(t=>t.id===ticketId);if(!tkt)return;
+  ticketId = String(ticketId);
+  const tkt=S.tickets.find(t=>String(t.id)===ticketId);
+  if(!tkt){toast('No se encontró el ticket','⚠️');return;}
   activeChatTicketId=ticketId;
+  // Mark as read in Firestore
+  if(window.fbFns && window.fbDb){
+    const updateField = isAdmin ? {readByAdmin:true} : {readByUser:true};
+    window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'tickets',ticketId), updateField).catch(e=>console.error(e));
+  }
   if(isAdmin)tkt.readByAdmin=true;else tkt.readByUser=true;
   updateNotifBadges();
   document.getElementById('chat-title').textContent=tkt.asunto;
-  const u=userByid(tkt.userId);
-  document.getElementById('chat-subtitle').textContent=(isAdmin?'Jugador: '+(u?u.username:'?')+' · ':'')+fmtDatetime(tkt.datetime);
+  // Get username from ticket or users array
+  const username = tkt.username || (userByid(tkt.userId)||{username:'?'}).username;
+  document.getElementById('chat-subtitle').textContent=(isAdmin?'Jugador: '+username+' · ':'')+fmtDatetime(tkt.datetime);
   renderChatMessages(tkt,isAdmin);
   removeChatAttach();document.getElementById('chat-input').value='';
   openModal('chat-modal');
@@ -1932,7 +1940,7 @@ function renderChatMessages(tkt,isAdmin){
 async function sendChatMsg(){
   const text=document.getElementById('chat-input').value.trim();const img=chatAttachData?chatAttachData.dataUrl:null;
   if(!text&&!img){toast('Escribí algo o adjuntá una imagen','⚠️');return;}
-  const tkt=S.tickets.find(t=>t.id===activeChatTicketId);if(!tkt)return;
+  const tkt=S.tickets.find(t=>String(t.id)===String(activeChatTicketId));if(!tkt)return;
   const isAdmin=S.currentUser.role==='admin';
   try{
     await window.sendChatFirebase(activeChatTicketId, text, img, isAdmin);
@@ -1951,7 +1959,7 @@ function renderUserTickets(){
     const statusMap={open:'<span class="ticket-badge open">⏳ Abierto</span>',replied:'<span class="ticket-badge replied">✓ Respondido</span>',closed:'<span class="ticket-badge closed">Cerrado</span>'};
     const last=t.messages[t.messages.length-1];
     const newDot=(!t.readByUser&&t.status==='replied')?'<span class="ticket-new-dot"></span>':'';
-    return `<div class="ticket-card" onclick="openChat(${t.id},false)"><div class="ticket-header"><span class="ticket-asunto">${t.asunto}</span>${newDot}${statusMap[t.status]||''}<span class="ticket-meta" style="margin-left:auto">${fmtDatetime(t.datetime)}</span></div><div class="ticket-preview">${last?last.text||'[imagen]':'Sin mensajes'}</div></div>`;
+    return `<div class="ticket-card" onclick="openChat('${t.id}',false)"><div class="ticket-header"><span class="ticket-asunto">${t.asunto}</span>${newDot}${statusMap[t.status]||''}<span class="ticket-meta" style="margin-left:auto">${fmtDatetime(t.datetime)}</span></div><div class="ticket-preview">${last?last.text||'[imagen]':'Sin mensajes'}</div></div>`;
   }).join('');
 }
 
@@ -2002,7 +2010,7 @@ function renderAdminTickets(){
     const u=userByid(t.userId);
     const last=t.messages[t.messages.length-1];
     const unread=!t.readByAdmin;
-    return `<div class="ticket-card" onclick="openChat(${t.id},true)">
+    return `<div class="ticket-card" onclick="openChat('${t.id}',true)">
       <div class="ticket-header">
         <div class="ticket-asunto">${unread?'<span class="ticket-new-dot"></span>':''}${esc(t.asunto)}</div>
         ${ticketBadge(t.status)}
@@ -2152,7 +2160,7 @@ function renderAdminUsers(){
   tbody.innerHTML=S.users.map(u=>{
     const reqs=S.requests.filter(r=>r.userId===u.id).length;
     const roleLbl=u.role==='admin'?'<span class="badge pending" style="font-size:10px">Admin</span>':'<span class="badge approved" style="font-size:10px">Jugador</span>';
-    const del=u.username!=='admin'?`<button class="btn-sm" onclick="deleteUser(${u.id})">Eliminar</button>`:'';
+    const del=u.username!=='admin'?`<button class="btn-sm" onclick="deleteUser('${u.id}')">Eliminar</button>`:'';
     return `<tr><td style="font-weight:700;color:var(--gold2);font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px">${u.username}</td><td>${roleLbl}</td><td style="color:var(--text3);font-size:12px">${u.nombre||'—'}</td><td style="color:var(--text3);font-size:12px">${u.telefono||'—'}</td><td style="color:var(--text3)">${reqs}</td><td><div class="action-cell"><button class="btn-pass" onclick="openChpassModal(${u.id})">🔑 Contraseña</button>${del}</div></td></tr>`;
   }).join('');
 }
@@ -2184,7 +2192,7 @@ async function changeStatusAndRefresh(id,status){
 async function deleteUser(id){
   if(!confirm('¿Eliminar este jugador?'))return;
   try{
-    await window.deleteUserFirebase(id);
+    await window.deleteUserFirebase(String(id));
     await window.loadAdminData();
     toast('Jugador eliminado','✓');
   }catch(e){toast('Error al eliminar','⚠️');console.error(e);}
@@ -2193,7 +2201,8 @@ function toast(msg,icon='✓'){const t=document.getElementById('toast');document
 document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open')});});
 
 function openRequestChat(reqId){
-  const req = S.requests.find(r => r.id === reqId);
+  reqId = String(reqId);
+  const req = S.requests.find(r => String(r.id) === reqId);
   if(!req){
     toast('Solicitud no encontrada','✕');
     return;
