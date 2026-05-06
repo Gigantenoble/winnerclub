@@ -61,6 +61,10 @@
       }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
+      // Trigger browser password save
+      if(window.PasswordCredential){
+        try{const cred=new PasswordCredential({id:u,password:p,name:u});navigator.credentials.store(cred);}catch(e){}
+      }
       hide('user-login-screen');
       show('user-screen');
       document.getElementById('nav-username').textContent = userData.username;
@@ -478,20 +482,25 @@ function showFirstLoginAlert(){
 async function saveFirstLoginPass(){
   const np=document.getElementById('first-pass-new').value;
   const cp=document.getElementById('first-pass-confirm').value;
-  if(!np){toast('Ingresá una nueva contraseña','⚠️');return;}
-  if(np.length<6){toast('Mínimo 6 caracteres','⚠️');return;}
-  if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
+  if(!np){toast('Ingresá una nueva contraseña','\u26a0\ufe0f');return;}
+  if(np.length<6){toast('Mínimo 6 caracteres','\u26a0\ufe0f');return;}
+  if(np!==cp){toast('Las contraseñas no coinciden','\u26a0\ufe0f');return;}
   try{
-    // Save new password to Firestore and remove mustChangePassword flag
-    await window.fbFns.updateDoc(
-      window.fbFns.doc(window.fbDb,'users',S.currentUser.id),
-      {password:np, mustChangePassword:false}
-    );
+    if(!window.fbDb){toast('Error de conexión','\u26a0\ufe0f');return;}
+    const fbModule = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    await fbModule.updateDoc(fbModule.doc(window.fbDb,'users',String(S.currentUser.id)),{password:np,mustChangePassword:false});
     S.currentUser.password=np;
     S.currentUser.mustChangePassword=false;
     closeModal('first-login-modal');
-    toast('Contraseña actualizada correctamente','✓');
-  }catch(e){toast('Error al guardar contraseña','⚠️');console.error(e);}
+    toast('Contraseña guardada correctamente','\u2713');
+  }catch(e){toast('Error: '+e.message,'\u26a0\ufe0f');console.error(e);}
+}
+
+
+function togglePass(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  if(el.type==='password'){el.type='text';}else{el.type='password';}
 }
 
 </script>
@@ -1377,9 +1386,9 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
   <div class="modal">
     <div class="modal-title"><span>🔒</span><span>Cambiar Contraseña</span><button class="modal-close" onclick="closeModal('pass-modal')">✕</button></div>
     <div class="modal-subtitle">Verificá tu contraseña actual antes de cambiarla</div>
-    <div class="field-group"><div class="field-label">Contraseña actual</div><input class="field-input" type="password" id="pass-cur" placeholder="Contraseña actual"></div>
-    <div class="field-group"><div class="field-label">Nueva contraseña</div><input class="field-input" type="password" id="pass-new" placeholder="Nueva contraseña" oninput="checkPassStrength(this.value,'pass-bar','pass-lbl')"><div class="pass-strength"><div class="pass-strength-bar" id="pass-bar"></div></div><div style="font-size:11px;color:var(--text3);margin-top:4px" id="pass-lbl"></div></div>
-    <div class="field-group"><div class="field-label">Confirmar</div><input class="field-input" type="password" id="pass-confirm" placeholder="Repetí la nueva contraseña"></div>
+    <div class="field-group"><div class="field-label">Contraseña actual</div><div style="position:relative"><input class="field-input" type="password" id="pass-cur" placeholder="Contraseña actual" style="padding-right:46px"><button type="button" onclick="togglePass('pass-cur')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
+    <div class="field-group"><div class="field-label">Nueva contraseña</div><div style="position:relative"><input class="field-input" type="password" id="pass-new" placeholder="Nueva contraseña" oninput="checkPassStrength(this.value,'pass-bar','pass-lbl')" style="padding-right:46px"><button type="button" onclick="togglePass('pass-new')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div><div class="pass-strength"><div class="pass-strength-bar" id="pass-bar"></div></div><div style="font-size:11px;color:var(--text3);margin-top:4px" id="pass-lbl"></div></div>
+    <div class="field-group"><div class="field-label">Confirmar</div><div style="position:relative"><input class="field-input" type="password" id="pass-confirm" placeholder="Repetí la nueva contraseña" style="padding-right:46px"><button type="button" onclick="togglePass('pass-confirm')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
     <button class="btn-confirm" onclick="savePass()">GUARDAR CONTRASEÑA</button>
     <button class="btn-cancel" onclick="closeModal('pass-modal')">Cancelar</button>
   </div>
@@ -1450,8 +1459,8 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
   <div class="modal">
     <div class="modal-title"><span>🔑</span><span>Cambiar Contraseña</span><button class="modal-close" onclick="closeModal('chpass-modal')">✕</button></div>
     <div class="modal-subtitle">Usuario: <span id="chpass-username" style="color:var(--gold2);font-weight:700"></span></div>
-    <div class="field-group"><div class="field-label">Nueva contraseña</div><input class="field-input" type="password" id="chpass-new" placeholder="Nueva contraseña"></div>
-    <div class="field-group"><div class="field-label">Confirmar</div><input class="field-input" type="password" id="chpass-confirm" placeholder="Repetí la contraseña"></div>
+    <div class="field-group"><div class="field-label">Nueva contraseña</div><div style="position:relative"><input class="field-input" type="password" id="chpass-new" placeholder="Nueva contraseña" style="padding-right:46px"><button type="button" onclick="togglePass('chpass-new')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
+    <div class="field-group"><div class="field-label">Confirmar</div><div style="position:relative"><input class="field-input" type="password" id="chpass-confirm" placeholder="Repetí la contraseña" style="padding-right:46px"><button type="button" onclick="togglePass('chpass-confirm')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
     <button class="btn-confirm" onclick="saveAdminPass()">GUARDAR</button>
     <button class="btn-cancel" onclick="closeModal('chpass-modal')">Cancelar</button>
   </div>
@@ -1469,7 +1478,7 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
     </div>
     <div class="login-divider"></div>
     <div class="field-group"><div class="field-label">Usuario</div><input class="field-input" type="text" id="login-user" placeholder="Ingresá tu usuario" autocomplete="username" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
-    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
+    <div class="field-group"><div class="field-label">Contraseña</div><div style="position:relative"><input class="field-input" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doUserLogin()" style="padding-right:46px"><button type="button" onclick="togglePass('login-pass')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
     <button class="btn-primary" onclick="doUserLogin()">INGRESAR</button>
     <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
     <!-- Footer ayuda -->
@@ -1494,7 +1503,7 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
     </div>
     <div class="login-divider"></div>
     <div class="field-group"><div class="field-label">Usuario Admin</div><input class="field-input" type="text" id="admin-login-user" placeholder="Usuario de administrador" autocomplete="username" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
-    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="admin-login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+    <div class="field-group"><div class="field-label">Contraseña</div><div style="position:relative"><input class="field-input" type="password" id="admin-login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAdminLogin()" style="padding-right:46px"><button type="button" onclick="togglePass('admin-login-pass')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
     <button class="btn-primary" onclick="doAdminLogin()">ACCEDER AL PANEL</button>
     <div class="login-error" id="admin-login-error">Credenciales de administrador incorrectas</div>
     <div style="margin-top:20px;text-align:center;font-size:13px;color:var(--text3)">
@@ -2502,8 +2511,8 @@ showHideTabbars();
   <div class="modal" style="border-color:rgba(243,156,18,0.5);max-width:400px">
     <div class="modal-title" style="color:var(--pending)"><span>🔐</span><span>Cambiá tu contraseña</span></div>
     <div class="modal-subtitle">Por seguridad, te recomendamos cambiar la contraseña inicial antes de continuar.</div>
-    <div class="field-group"><div class="field-label">Nueva contraseña</div><input class="field-input" type="password" id="first-pass-new" placeholder="Nueva contraseña" autocomplete="new-password" oninput="checkPassStrength(this.value,'first-pass-bar','first-pass-lbl')"><div class="pass-strength"><div class="pass-strength-bar" id="first-pass-bar"></div></div><div style="font-size:12px;color:var(--text3);margin-top:4px" id="first-pass-lbl"></div></div>
-    <div class="field-group"><div class="field-label">Confirmar contraseña</div><input class="field-input" type="password" id="first-pass-confirm" placeholder="Repetí la contraseña" autocomplete="new-password"></div>
+    <div class="field-group"><div class="field-label">Nueva contraseña</div><div style="position:relative"><input class="field-input" type="password" id="first-pass-new" placeholder="Nueva contraseña" autocomplete="new-password" oninput="checkPassStrength(this.value,'first-pass-bar','first-pass-lbl')" style="padding-right:46px"><button type="button" onclick="togglePass('first-pass-new')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div><div class="pass-strength"><div class="pass-strength-bar" id="first-pass-bar"></div></div><div style="font-size:12px;color:var(--text3);margin-top:4px" id="first-pass-lbl"></div></div>
+    <div class="field-group"><div class="field-label">Confirmar contraseña</div><div style="position:relative"><input class="field-input" type="password" id="first-pass-confirm" placeholder="Repetí la contraseña" autocomplete="new-password" style="padding-right:46px"><button type="button" onclick="togglePass('first-pass-confirm')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
     <button class="btn-confirm" onclick="saveFirstLoginPass()">GUARDAR CONTRASEÑA</button>
     <button class="btn-cancel" onclick="closeModal('first-login-modal')">Ahora no</button>
   </div>
