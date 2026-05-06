@@ -73,6 +73,7 @@
       document.getElementById('dep-cbu-display').textContent = window.cbuConfig.number;
       await window.loadUserData();
       window.startRealtimeListeners();
+      window.startConfigListener();
       showHideTabbars();
       setTabActive('user','home');
     } catch(e){
@@ -122,6 +123,7 @@
       document.getElementById('admin-nav-initials').textContent = userData.username[0].toUpperCase();
       await window.loadAdminData();
       window.startRealtimeListeners();
+      window.startConfigListener();
       showHideTabbars();
       setTabActive('admin','overview');
     } catch(e){
@@ -225,13 +227,34 @@
   // ── Submit deposit ──
   window.submitDepositFirebase = async function(name, amount, fileData){
     const uid = window.S.currentUser.id;
+    // Compress image if too large (Firestore has 1MB doc limit)
+    let compressedFile = null;
+    if(fileData){
+      try{
+        if(fileData.length > 500000){
+          // Compress via canvas
+          const img = new Image();
+          await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=fileData; });
+          const canvas = document.createElement('canvas');
+          const maxW = 800;
+          const scale = Math.min(1, maxW/img.width);
+          canvas.width = img.width*scale;
+          canvas.height = img.height*scale;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          compressedFile = canvas.toDataURL('image/jpeg', 0.6);
+        } else {
+          compressedFile = fileData;
+        }
+      }catch(e){ compressedFile = null; console.error('Compress error:',e); }
+    }
     await addDoc(collection(db,'requests'),{
       userId: uid,
       username: window.S.currentUser.username,
       type: 'deposit',
       fullName: name,
       amount: amount,
-      fileData: fileData||null,
+      fileData: compressedFile,
       status: 'pending',
       tip: 0,
       cbu: '',
@@ -321,6 +344,32 @@
   let unsubscribeRequests = null;
   let unsubscribeTickets = null;
 
+  // ── Real-time config listener ──
+  let unsubscribeConfig = null;
+  window.startConfigListener = function(){
+    if(unsubscribeConfig) unsubscribeConfig();
+    unsubscribeConfig = onSnapshot(doc(db,'config','main'), (cfgDoc) => {
+      if(!cfgDoc.exists()) return;
+      const cfg = cfgDoc.data();
+      if(cfg.cbuHolder){ window.cbuConfig.holder=cfg.cbuHolder; const el=document.getElementById('dep-cbu-holder'); if(el) el.textContent=cfg.cbuHolder; }
+      if(cfg.cbuNumber){ window.cbuConfig.number=cfg.cbuNumber; const el=document.getElementById('dep-cbu-display'); if(el) el.textContent=cfg.cbuNumber; }
+      if(cfg.gamesUrl){
+        window.gamesConfig.url=cfg.gamesUrl;
+        const el=document.getElementById('games-link-display');
+        if(el) el.textContent=cfg.gamesUrl.replace(/https?:\/\//,'');
+      }
+      if(cfg.gamesLabel){
+        window.gamesConfig.label=cfg.gamesLabel;
+        const el=document.getElementById('games-btn-label');
+        if(el) el.textContent=cfg.gamesLabel;
+      }
+      if(cfg.whatsapp) window.S.whatsappSupportLink=cfg.whatsapp;
+      // Update WA button in topnav
+      const waBtn=document.getElementById('btn-wa-topnav');
+      if(waBtn) waBtn.style.display=cfg.whatsapp?'flex':'none';
+    });
+  };
+
   window.startRealtimeListeners = function(){
     // Listen to requests in real-time
     if(unsubscribeRequests) unsubscribeRequests();
@@ -376,6 +425,7 @@
   window.stopRealtimeListeners = function(){
     if(unsubscribeRequests){ unsubscribeRequests(); unsubscribeRequests = null; }
     if(unsubscribeTickets){ unsubscribeTickets(); unsubscribeTickets = null; }
+    if(unsubscribeConfig){ unsubscribeConfig(); unsubscribeConfig = null; }
   };
 
   // ── Keep session alive - persist auth state ──
@@ -1193,7 +1243,8 @@ body { font-size: 17px !important; }
 .sidebar-version { font-size: 12px !important; }
 .user-crown { font-size: 40px !important; }
 .page-title { font-size: 26px !important; }
-.money-input { font-size: 18px !important; }
+.money-input { font-size: 17px !important; padding-left: 36px !important; }
+.money-prefix { font-size: 17px !important; left: 12px !important; }
 .money-prefix { font-size: 17px !important; }
 .file-drop-text { font-size: 15px !important; }
 .cbu-hint { font-size: 14px !important; }
@@ -1703,7 +1754,12 @@ async function saveGamesLink(){
   try{await window.saveConfigFirebase({gamesUrl:url,gamesLabel:gamesConfig.label});}catch(e){console.error(e);}
   toast('Link de juegos guardado','✓');
 }
-function openGamesLink(){window.open(gamesConfig.url,'_blank');}
+function openGamesLink(){
+  let url = window.gamesConfig ? window.gamesConfig.url : gamesConfig.url;
+  if(!url) return;
+  if(!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 
 // ======= NOTIF =======
 function countUnreadForUser(uid){return S.tickets.filter(t=>t.userId===uid&&!t.readByUser&&t.status==='replied').length;}
