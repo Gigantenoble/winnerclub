@@ -61,7 +61,16 @@
       }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
-      // Trigger browser password save
+      // Sync hidden form to trigger browser password save dialog
+      try{
+        const hUser = document.getElementById('login-user-hidden');
+        const hPass = document.getElementById('login-pass-hidden');
+        if(hUser) hUser.value = u;
+        if(hPass) hPass.value = p;
+        const form = document.getElementById('login-form-helper');
+        if(form) form.submit();
+      }catch(e){}
+      // Also try PasswordCredential API (Chrome/Edge)
       if(window.PasswordCredential){
         try{const cred=new PasswordCredential({id:u,password:p,name:u});navigator.credentials.store(cred);}catch(e){}
       }
@@ -469,6 +478,22 @@
     }
   });
 
+  // ── Helper: update any user doc (used by non-module code) ──
+  // ── Helper: load config from Firestore and return whatsapp link ──
+  window.loadConfigFromFirestore = async function(){
+    const cfgDoc = await getDoc(doc(db,'config','main'));
+    if(cfgDoc.exists()){
+      const cfg = cfgDoc.data();
+      if(cfg.whatsapp && window.S) window.S.whatsappSupportLink = cfg.whatsapp;
+      return cfg.whatsapp || '';
+    }
+    return '';
+  };
+
+  window.updateFirestoreUser = async function(uid, data){
+    await updateDoc(doc(db,'users', uid), data);
+  };
+
   console.log('Firebase initialized ✓');
 
 
@@ -482,18 +507,17 @@ function showFirstLoginAlert(){
 async function saveFirstLoginPass(){
   const np=document.getElementById('first-pass-new').value;
   const cp=document.getElementById('first-pass-confirm').value;
-  if(!np){toast('Ingresá una nueva contraseña','\u26a0\ufe0f');return;}
-  if(np.length<6){toast('Mínimo 6 caracteres','\u26a0\ufe0f');return;}
-  if(np!==cp){toast('Las contraseñas no coinciden','\u26a0\ufe0f');return;}
+  if(!np){toast('Ingresá una nueva contraseña','⚠️');return;}
+  if(np.length<6){toast('Mínimo 6 caracteres','⚠️');return;}
+  if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
   try{
-    if(!window.fbDb){toast('Error de conexión','\u26a0\ufe0f');return;}
-    const fbModule = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-    await fbModule.updateDoc(fbModule.doc(window.fbDb,'users',String(S.currentUser.id)),{password:np,mustChangePassword:false});
-    S.currentUser.password=np;
-    S.currentUser.mustChangePassword=false;
+    // Use the updateFirestoreUser helper that uses already-loaded Firebase
+    await window.updateFirestoreUser(String(S.currentUser.id), {password:np, mustChangePassword:false});
+    S.currentUser.password = np;
+    S.currentUser.mustChangePassword = false;
     closeModal('first-login-modal');
-    toast('Contraseña guardada correctamente','\u2713');
-  }catch(e){toast('Error: '+e.message,'\u26a0\ufe0f');console.error(e);}
+    toast('Contraseña guardada correctamente','✓');
+  }catch(e){toast('Error al guardar: '+e.message,'⚠️');console.error(e);}
 }
 
 
@@ -1479,6 +1503,11 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
     <div class="login-divider"></div>
     <div class="field-group"><div class="field-label">Usuario</div><input class="field-input" type="text" id="login-user" placeholder="Ingresá tu usuario" autocomplete="username" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
     <div class="field-group"><div class="field-label">Contraseña</div><div style="position:relative"><input class="field-input" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doUserLogin()" style="padding-right:46px"><button type="button" onclick="togglePass('login-pass')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
+    <!-- Hidden form to trigger browser password save -->
+    <form id="login-form-helper" style="display:none" onsubmit="return false">
+      <input type="text" name="username" id="login-user-hidden" autocomplete="username">
+      <input type="password" name="password" id="login-pass-hidden" autocomplete="current-password">
+    </form>
     <button class="btn-primary" onclick="doUserLogin()">INGRESAR</button>
     <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
     <!-- Footer ayuda -->
@@ -1946,7 +1975,7 @@ async function saveAdminPass(){
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
   if(np.length<6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
   try{
-    await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(chpassTargetId)),{password:np});
+    await window.updateFirestoreUser(String(chpassTargetId), {password:np});
     closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
   }catch(e){toast('Error al cambiar contraseña','⚠️');console.error(e);}
 }
