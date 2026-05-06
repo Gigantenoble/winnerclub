@@ -76,6 +76,12 @@
       window.startConfigListener();
       showHideTabbars();
       setTabActive('user','home');
+      // Show password change prompt if first login
+      if(userData.mustChangePassword){
+        setTimeout(()=>{
+          showFirstLoginAlert();
+        }, 800);
+      }
     } catch(e){
       err.style.display='block';
       err.textContent='Usuario o contraseña incorrectos';
@@ -214,11 +220,12 @@
     const uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
     await setDoc(doc(db,'users',uid), {
       username,
-      password, // In production use bcrypt; for now stored as-is
+      password,
       role,
       nombre: nombre||'',
       telefono: telefono||'',
       email: username + '@winnerclub.internal',
+      mustChangePassword: role === 'user', // Users must change on first login
       createdAt: serverTimestamp()
     });
     return uid;
@@ -424,6 +431,12 @@
           const soporteActive = document.getElementById('user-soporte')?.classList.contains('active');
           if(soporteActive) renderUserTickets();
         }
+        // If chat modal is open, auto-refresh it
+        const chatModal = document.getElementById('chat-modal');
+        if(chatModal && chatModal.classList.contains('open') && activeChatTicketId){
+          const updTkt = all.find(t=>String(t.id)===String(activeChatTicketId));
+          if(updTkt) renderChatMessages(updTkt, isAdmin);
+        }
         updateNotifBadges();
       },
       (err) => console.error('Tickets listener error:', err)
@@ -453,6 +466,33 @@
   });
 
   console.log('Firebase initialized ✓');
+
+
+function showFirstLoginAlert(){
+  document.getElementById('first-pass-new').value='';
+  document.getElementById('first-pass-confirm').value='';
+  document.getElementById('first-pass-bar').style.width='0';
+  document.getElementById('first-pass-lbl').textContent='';
+  openModal('first-login-modal');
+}
+async function saveFirstLoginPass(){
+  const np=document.getElementById('first-pass-new').value;
+  const cp=document.getElementById('first-pass-confirm').value;
+  if(!np){toast('Ingresá una nueva contraseña','⚠️');return;}
+  if(np.length<6){toast('Mínimo 6 caracteres','⚠️');return;}
+  if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
+  try{
+    // Save new password to Firestore and remove mustChangePassword flag
+    await window.fbFns.updateDoc(
+      window.fbFns.doc(window.fbDb,'users',S.currentUser.id),
+      {password:np, mustChangePassword:false}
+    );
+    S.currentUser.password=np;
+    S.currentUser.mustChangePassword=false;
+    closeModal('first-login-modal');
+    toast('Contraseña actualizada correctamente','✓');
+  }catch(e){toast('Error al guardar contraseña','⚠️');console.error(e);}
+}
 
 </script>
 
@@ -1428,8 +1468,8 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
       <div class="login-tagline">Plataforma exclusiva</div>
     </div>
     <div class="login-divider"></div>
-    <div class="field-group"><div class="field-label">Usuario</div><input class="field-input" type="text" id="login-user" placeholder="Ingresá tu usuario" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
-    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
+    <div class="field-group"><div class="field-label">Usuario</div><input class="field-input" type="text" id="login-user" placeholder="Ingresá tu usuario" autocomplete="username" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
+    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
     <button class="btn-primary" onclick="doUserLogin()">INGRESAR</button>
     <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
     <!-- Footer ayuda -->
@@ -1453,8 +1493,8 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
       <div class="login-tagline" style="color:var(--gold3)">Panel Administrador</div>
     </div>
     <div class="login-divider"></div>
-    <div class="field-group"><div class="field-label">Usuario Admin</div><input class="field-input" type="text" id="admin-login-user" placeholder="Usuario de administrador" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
-    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="admin-login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+    <div class="field-group"><div class="field-label">Usuario Admin</div><input class="field-input" type="text" id="admin-login-user" placeholder="Usuario de administrador" autocomplete="username" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+    <div class="field-group"><div class="field-label">Contraseña</div><input class="field-input" type="password" id="admin-login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
     <button class="btn-primary" onclick="doAdminLogin()">ACCEDER AL PANEL</button>
     <div class="login-error" id="admin-login-error">Credenciales de administrador incorrectas</div>
     <div style="margin-top:20px;text-align:center;font-size:13px;color:var(--text3)">
@@ -1925,21 +1965,24 @@ function openChat(ticketId,isAdmin){
 }
 
 function renderChatMessages(tkt,isAdmin){
-  // isAdmin = quien está viendo ahora
-  // El logueado actual: si isAdmin → from='admin' va a la derecha; si user → from='user' va a la derecha
   const myFrom = isAdmin ? 'admin' : 'user';
   const container=document.getElementById('chat-messages');
+  if(!tkt || !Array.isArray(tkt.messages) || tkt.messages.length===0){
+    container.innerHTML='<div style="text-align:center;color:var(--text3);padding:20px;font-size:14px">Sin mensajes aún</div>';
+    return;
+  }
+  // Get username from ticket directly (Firestore field)
+  const playerUsername = tkt.username || (userByid(tkt.userId)||{username:'Jugador'}).username;
   container.innerHTML=tkt.messages.map(m=>{
     const isMe = m.from === myFrom;
     const cls = isMe ? 'chat-msg-me' : 'chat-msg-other';
-    const senderLabel = m.from==='user'
-      ? '👤 '+(userByid(tkt.userId)||{username:'?'}).username
-      : '👑 Soporte WinnerClub';
+    const senderLabel = m.from==='user' ? '👤 '+playerUsername : '👑 Soporte WinnerClub';
     const imgHtml=m.img?`<img class="chat-img" src="${m.img}" onclick="viewImg('${m.img}')" alt="">`:'' ;
+    const timeStr = m.dt ? fmtDatetime(m.dt) : '';
     return `<div class="${cls}">
       <div class="chat-sender">${senderLabel}</div>
       <div class="chat-bubble">${m.text||''}${imgHtml}</div>
-      <div class="chat-time">${fmtDatetime(m.dt)}</div>
+      <div class="chat-time">${timeStr}</div>
     </div>`;
   }).join('');
   container.scrollTop=container.scrollHeight;
@@ -2453,5 +2496,18 @@ showHideTabbars();
     <span>Config</span>
   </button>
 </div>
+
+<!-- MODAL CAMBIO DE CONTRASEÑA OBLIGATORIO -->
+<div class="modal-overlay" id="first-login-modal" style="z-index:200">
+  <div class="modal" style="border-color:rgba(243,156,18,0.5);max-width:400px">
+    <div class="modal-title" style="color:var(--pending)"><span>🔐</span><span>Cambiá tu contraseña</span></div>
+    <div class="modal-subtitle">Por seguridad, te recomendamos cambiar la contraseña inicial antes de continuar.</div>
+    <div class="field-group"><div class="field-label">Nueva contraseña</div><input class="field-input" type="password" id="first-pass-new" placeholder="Nueva contraseña" autocomplete="new-password" oninput="checkPassStrength(this.value,'first-pass-bar','first-pass-lbl')"><div class="pass-strength"><div class="pass-strength-bar" id="first-pass-bar"></div></div><div style="font-size:12px;color:var(--text3);margin-top:4px" id="first-pass-lbl"></div></div>
+    <div class="field-group"><div class="field-label">Confirmar contraseña</div><input class="field-input" type="password" id="first-pass-confirm" placeholder="Repetí la contraseña" autocomplete="new-password"></div>
+    <button class="btn-confirm" onclick="saveFirstLoginPass()">GUARDAR CONTRASEÑA</button>
+    <button class="btn-cancel" onclick="closeModal('first-login-modal')">Ahora no</button>
+  </div>
+</div>
+
 </body>
 </html>
