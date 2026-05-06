@@ -55,9 +55,8 @@
       if(!userDoc){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
       const userData = userDoc.data();
       if(userData.role === 'admin'){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
-      try {
-        await signInWithEmailAndPassword(auth, userData.email, p);
-      } catch(authErr){
+      // Check password directly from Firestore
+      if(userData.password !== p){
         err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;
       }
       err.style.display='none';
@@ -192,17 +191,20 @@
   };
 
   // ── Create user from admin ──
+  // Store users directly in Firestore (no Firebase Auth for regular users)
+  // Only admin uses Firebase Auth; regular users authenticate via Firestore lookup + password check
   window.createUserFirebase = async function(username, password, role, nombre, telefono){
-    const email = username + '@winnerclub.internal';
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const uid = cred.user.uid;
+    // Generate a unique ID
+    const uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
     await setDoc(doc(db,'users',uid), {
-      username, email, role, nombre: nombre||'', telefono: telefono||'',
+      username,
+      password, // In production use bcrypt; for now stored as-is
+      role,
+      nombre: nombre||'',
+      telefono: telefono||'',
+      email: username + '@winnerclub.internal',
       createdAt: serverTimestamp()
     });
-    // Re-login admin (creating user signs in as new user)
-    const adminData = window.S.currentUser;
-    await signInWithEmailAndPassword(auth, adminData.email, window._adminPass||'');
     return uid;
   };
 
