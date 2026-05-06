@@ -1563,40 +1563,22 @@ function ticketBadge(status){
 }
 
 // ======= STATE =======
-// Use window.S initialized above
-if(!window.S.nextId) window.S.nextId=6;
-if(!window.S.nextTktId) window.S.nextTktId=3;
-var S=window.S;
 const TODAY=nowDate();
 let statusFilter='all',typeFilter='all',chpassTargetId=null,activeChatTicketId=null;
 let gamesConfig={url:'https://Acceso directo',label:'Juegos'};
 let cbuConfig={holder:'WinnerClub S.A.',number:'0000000000000000000000'};
 
-let S={
-  currentUser:null,
-  users:[
-    {id:1,username:'admin',password:'admin123',role:'admin',nombre:'',telefono:''},
-    {id:2,username:'usuario',password:'club123',role:'user',nombre:'Carlos Méndez',telefono:'+54 9 11 2345-6789'},
-    {id:3,username:'maria',password:'club123',role:'user',nombre:'María García',telefono:''}
-  ],
-  requests:[
-    {id:1,userId:2,type:'deposit',fullName:'Carlos Méndez',amount:5000,cbu:'',tip:0,status:'approved',date:'2025-04-28',datetime:'2025-04-28T10:30',fileData:null},
-    {id:2,userId:2,type:'withdraw',fullName:'Carlos Méndez',amount:1500,cbu:'0000003100012345678900',tip:0,status:'approved',date:'2025-04-30',datetime:'2025-04-30T14:15',fileData:null},
-    {id:3,userId:3,type:'deposit',fullName:'María García',amount:10000,cbu:'',tip:0,status:'pending',date:TODAY,datetime:TODAY+'T09:00',fileData:null},
-    {id:4,userId:2,type:'deposit',fullName:'Carlos Méndez',amount:2000,cbu:'',tip:0,status:'approved',date:TODAY,datetime:TODAY+'T11:45',fileData:null},
-    {id:5,userId:3,type:'withdraw',fullName:'María García',amount:3000,cbu:'0720095688000012345678',tip:150,status:'approved',date:TODAY,datetime:TODAY+'T13:20',fileData:null},
-  ],
-  tickets:[
-    {id:1,userId:2,asunto:'Problema con retiro',status:'replied',datetime:'2025-04-29T15:00',readByUser:true,readByAdmin:true,
-     messages:[
-       {from:'user',text:'Hola, hice un retiro el 28/04 y no lo recibí.',img:null,dt:'2025-04-29T15:00'},
-       {from:'admin',text:'Hola! Ya lo estamos verificando, te confirmamos en breve.',img:null,dt:'2025-04-29T16:30'}
-     ]},
-    {id:2,userId:3,asunto:'Consulta sobre carga',status:'open',datetime:TODAY+'T10:00',readByUser:true,readByAdmin:false,
-     messages:[{from:'user',text:'Cargué fondos y no se acreditaron aún.',img:null,dt:TODAY+'T10:00'}]}
-  ],
-  nextId:6,nextTktId:3
-};
+// S is initialized early as window.S — just reference it here
+// Default data only used if Firebase hasn't loaded yet
+window.S = window.S || {};
+window.S.currentUser = window.S.currentUser || null;
+window.S.users = window.S.users || [];
+window.S.requests = window.S.requests || [];
+window.S.tickets = window.S.tickets || [];
+window.S.nextId = window.S.nextId || 6;
+window.S.nextTktId = window.S.nextTktId || 3;
+window.S.whatsappSupportLink = window.S.whatsappSupportLink || '';
+const S = window.S;
 
 // ======= CBU =======
 function copyCBU(){
@@ -2214,13 +2196,16 @@ showHideTabbars();
 
 // ── Detectar parámetro de URL para mostrar login correcto ──
 (function(){
-  const params = new URLSearchParams(window.location.search);
-  const loginType = params.get('login') || params.get('panel') || 'user';
-  if(loginType === 'admin'){
-    document.getElementById('user-login-screen').classList.remove('active');
-    document.getElementById('admin-login-screen').classList.add('active');
-  }
-  // Si no hay parámetro o es 'user', ya está activo por defecto
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const loginType = params.get('login') || params.get('panel') || 'user';
+    if(loginType === 'admin'){
+      const userScreen = document.getElementById('user-login-screen');
+      const adminScreen = document.getElementById('admin-login-screen');
+      if(userScreen) userScreen.classList.remove('active');
+      if(adminScreen) adminScreen.classList.add('active');
+    }
+  }catch(e){ console.error('URL detection error:', e); }
 })();
 
 </script>
