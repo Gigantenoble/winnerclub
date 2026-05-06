@@ -2358,20 +2358,15 @@ function openRequestChat(reqId){
 }
 
 
-function ensureWhatsAppSupportLink(){
-  if(!S.whatsappSupportLink){
-    S.whatsappSupportLink='https://wa.me/5492210000000';
-  }
-}
 
-
-function openEmergencyWhatsApp(){
-  const link=S.whatsappSupportLink || 'https://wa.me/5492210000000';
+async function openEmergencyWhatsApp(){
+  let link = S.whatsappSupportLink || '';
+  if(!link && window.loadConfigFromFirestore){ try{ link=await window.loadConfigFromFirestore(); }catch(e){} }
+  if(!link){ toast('WhatsApp no configurado aún','⚠️'); return; }
   window.open(link,'_blank');
 }
 
 
-S.whatsappSupportLink=S.whatsappSupportLink||'https://wa.me/5492210000000';
 
 
 
@@ -2456,6 +2451,18 @@ function getLoginURL(type){
 
 // Hide tabbars on initial load
 showHideTabbars();
+
+// Pre-load config for login screen WA buttons
+(async function(){
+  let attempts = 0;
+  while(!window.loadConfigFromFirestore && attempts < 30){
+    await new Promise(r=>setTimeout(r,200));
+    attempts++;
+  }
+  if(window.loadConfigFromFirestore){
+    try{ await window.loadConfigFromFirestore(); }catch(e){}
+  }
+})();
 
 // ── Detectar parámetro de URL para mostrar login correcto ──
 (function(){
