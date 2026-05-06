@@ -72,6 +72,7 @@
       document.getElementById('dep-cbu-holder').textContent = window.cbuConfig.holder;
       document.getElementById('dep-cbu-display').textContent = window.cbuConfig.number;
       await window.loadUserData();
+      window.startRealtimeListeners();
       showHideTabbars();
       setTabActive('user','home');
     } catch(e){
@@ -120,6 +121,7 @@
       document.getElementById('admin-nav-username').textContent = userData.username;
       document.getElementById('admin-nav-initials').textContent = userData.username[0].toUpperCase();
       await window.loadAdminData();
+      window.startRealtimeListeners();
       showHideTabbars();
       setTabActive('admin','overview');
     } catch(e){
@@ -314,7 +316,86 @@
     window.S.currentUser.telefono = telefono;
   };
 
+
+  // ── Real-time listeners ──
+  let unsubscribeRequests = null;
+  let unsubscribeTickets = null;
+
+  window.startRealtimeListeners = function(){
+    // Listen to requests in real-time
+    if(unsubscribeRequests) unsubscribeRequests();
+    unsubscribeRequests = onSnapshot(
+      collection(db,'requests'),
+      (snapshot) => {
+        if(!window.S.currentUser) return;
+        const isAdmin = window.S.currentUser.role === 'admin';
+        const uid = window.S.currentUser.id;
+        const all = [];
+        snapshot.forEach(d => all.push({id:d.id,...d.data()}));
+        if(isAdmin){
+          window.S.requests = all;
+          // Only re-render if admin pages are visible
+          const overviewActive = document.getElementById('admin-overview')?.classList.contains('active');
+          const solicActive = document.getElementById('admin-solicitudes')?.classList.contains('active');
+          if(overviewActive){ updateAdminStats(); renderAdminPending(); }
+          if(solicActive){ applyFilters(); }
+        } else {
+          window.S.requests = all.filter(r => r.userId === uid);
+          const histActive = document.getElementById('user-historial')?.classList.contains('active');
+          if(histActive) renderUserHistory();
+        }
+      },
+      (err) => console.error('Requests listener error:', err)
+    );
+
+    // Listen to tickets in real-time
+    if(unsubscribeTickets) unsubscribeTickets();
+    unsubscribeTickets = onSnapshot(
+      collection(db,'tickets'),
+      (snapshot) => {
+        if(!window.S.currentUser) return;
+        const isAdmin = window.S.currentUser.role === 'admin';
+        const uid = window.S.currentUser.id;
+        const all = [];
+        snapshot.forEach(d => all.push({id:d.id,...d.data()}));
+        if(isAdmin){
+          window.S.tickets = all;
+          const ticketsActive = document.getElementById('admin-tickets')?.classList.contains('active');
+          if(ticketsActive) renderAdminTickets();
+        } else {
+          window.S.tickets = all.filter(t => t.userId === uid);
+          const soporteActive = document.getElementById('user-soporte')?.classList.contains('active');
+          if(soporteActive) renderUserTickets();
+        }
+        updateNotifBadges();
+      },
+      (err) => console.error('Tickets listener error:', err)
+    );
+  };
+
+  window.stopRealtimeListeners = function(){
+    if(unsubscribeRequests){ unsubscribeRequests(); unsubscribeRequests = null; }
+    if(unsubscribeTickets){ unsubscribeTickets(); unsubscribeTickets = null; }
+  };
+
+  // ── Keep session alive - persist auth state ──
+  onAuthStateChanged(auth, (user) => {
+    if(!user && window.S.currentUser){
+      // Session expired - redirect to login
+      window.S.currentUser = null;
+      ['admin-screen','user-screen'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.classList.remove('active');
+      });
+      const loginEl = document.getElementById('user-login-screen');
+      if(loginEl) loginEl.classList.add('active');
+      window.stopRealtimeListeners();
+      showHideTabbars();
+    }
+  });
+
   console.log('Firebase initialized ✓');
+
 </script>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/sahibjotsaggu/San-Francisco-Pro-Fonts@master/sf-pro.css">
@@ -400,8 +481,8 @@ body{font-family:'SF Pro Text','SF Pro Display',-apple-system,BlinkMacSystemFont
 .modal-section{font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10px;letter-spacing:2px;color:var(--text3);text-transform:uppercase;margin-bottom:14px;margin-top:4px;display:flex;align-items:center;gap:10px}
 .modal-section::after{content:'';flex:1;height:1px;background:rgba(212,175,55,0.12)}
 .money-wrap{position:relative}
-.money-prefix{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--gold3);font-size:15px;font-weight:700;pointer-events:none;font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-.money-input{padding-left:28px!important;font-size:16px!important;font-weight:600;color:var(--gold2)!important}
+.money-prefix{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--gold3);font-size:17px;font-weight:700;pointer-events:none;font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;z-index:1}
+.money-input{padding-left:32px!important;font-size:17px!important;font-weight:600;color:var(--gold2)!important}
 .money-input::placeholder{color:var(--text3)!important;font-weight:400;font-size:14px}
 .tip-row{display:flex;align-items:center;gap:10px}
 .tip-no-btn{flex-shrink:0;background:rgba(255,255,255,0.03);border:1px solid rgba(212,175,55,0.18);border-radius:8px;padding:11px 18px;cursor:pointer;transition:all 0.2s;color:var(--text3);font-size:13px;font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;white-space:nowrap}
@@ -1961,7 +2042,7 @@ function doAdminLogin(){
 }
 
 function doLogin(){ doUserLogin(); }
-function logout(){ window.doLogout(); }
+function logout(){ window.stopRealtimeListeners(); window.doLogout(); }
 function show(id){document.getElementById(id).classList.add('active')}
 function hide(id){document.getElementById(id).classList.remove('active')}
 
