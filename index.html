@@ -306,15 +306,23 @@
 
   // ── Send chat message ──
   window.sendChatFirebase = async function(ticketId, text, img, isAdmin){
-    const tktRef = doc(db,'tickets',ticketId);
+    const tktRef = doc(db,'tickets',String(ticketId));
     const tktDoc = await getDoc(tktRef);
-    if(!tktDoc.exists()) return;
+    if(!tktDoc.exists()){
+      console.error('Ticket not found:', ticketId);
+      throw new Error('Ticket no encontrado');
+    }
     const tkt = tktDoc.data();
-    const msgs = tkt.messages || [];
-    msgs.push({from: isAdmin?'admin':'user', text, img:img||null, dt:new Date().toISOString()});
+    const msgs = Array.isArray(tkt.messages) ? [...tkt.messages] : [];
+    msgs.push({
+      from: isAdmin ? 'admin' : 'user',
+      text: text || '',
+      img: img || null,
+      dt: new Date().toISOString()
+    });
     await updateDoc(tktRef,{
       messages: msgs,
-      status: isAdmin?'replied':'open',
+      status: isAdmin ? 'replied' : 'open',
       readByUser: !isAdmin,
       readByAdmin: isAdmin
     });
@@ -1940,14 +1948,21 @@ function renderChatMessages(tkt,isAdmin){
 async function sendChatMsg(){
   const text=document.getElementById('chat-input').value.trim();const img=chatAttachData?chatAttachData.dataUrl:null;
   if(!text&&!img){toast('Escribí algo o adjuntá una imagen','⚠️');return;}
-  const tkt=S.tickets.find(t=>String(t.id)===String(activeChatTicketId));if(!tkt)return;
   const isAdmin=S.currentUser.role==='admin';
   try{
     await window.sendChatFirebase(activeChatTicketId, text, img, isAdmin);
     document.getElementById('chat-input').value='';removeChatAttach();
-    if(isAdmin){await window.loadAdminData();}else{await window.loadUserData();}
-    const updTkt=S.tickets.find(t=>t.id===activeChatTicketId);
-    if(updTkt) renderChatMessages(updTkt,isAdmin);
+    // Reload ticket directly from Firestore for immediate update
+    const tktDoc = await window.fbFns.getDoc(window.fbFns.doc(window.fbDb,'tickets',activeChatTicketId));
+    if(tktDoc.exists()){
+      const updTkt = {id: tktDoc.id, ...tktDoc.data()};
+      // Update in local array
+      const idx = S.tickets.findIndex(t=>String(t.id)===String(activeChatTicketId));
+      if(idx>=0) S.tickets[idx] = updTkt;
+      else S.tickets.push(updTkt);
+      renderChatMessages(updTkt, isAdmin);
+    }
+    updateNotifBadges();
   }catch(e){toast('Error al enviar mensaje','⚠️');console.error(e);}
 }
 
