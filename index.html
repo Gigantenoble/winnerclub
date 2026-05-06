@@ -44,16 +44,22 @@
     const err = document.getElementById('login-error');
     if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
     try {
-      // Get user doc by username
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
       let userDoc = null;
-      snapshot.forEach(d => { if(d.data().username === u) userDoc = d; });
+      // Case-insensitive search
+      snapshot.forEach(d => {
+        const data = d.data();
+        if(data.username && data.username.toLowerCase() === u.toLowerCase()) userDoc = d;
+      });
       if(!userDoc){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
       const userData = userDoc.data();
       if(userData.role === 'admin'){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
-      // Sign in with Firebase Auth
-      await signInWithEmailAndPassword(auth, userData.email, p);
+      try {
+        await signInWithEmailAndPassword(auth, userData.email, p);
+      } catch(authErr){
+        err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;
+      }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
       hide('user-login-screen');
@@ -84,10 +90,30 @@
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
       let userDoc = null;
-      snapshot.forEach(d => { if(d.data().username === u && d.data().role === 'admin') userDoc = d; });
-      if(!userDoc){err.style.display='block';err.textContent='Credenciales incorrectas';return;}
+      // Case-insensitive username search
+      snapshot.forEach(d => {
+        const data = d.data();
+        if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin') {
+          userDoc = d;
+        }
+      });
+      if(!userDoc){
+        err.style.display='block';
+        err.textContent='Usuario no encontrado o no es admin';
+        return;
+      }
       const userData = userDoc.data();
-      await signInWithEmailAndPassword(auth, userData.email, p);
+      try {
+        await signInWithEmailAndPassword(auth, userData.email, p);
+      } catch(authErr) {
+        err.style.display='block';
+        if(authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential'){
+          err.textContent='Contraseña incorrecta';
+        } else {
+          err.textContent='Error: ' + authErr.code;
+        }
+        return;
+      }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
       hide('admin-login-screen');
@@ -99,7 +125,8 @@
       setTabActive('admin','overview');
     } catch(e){
       err.style.display='block';
-      err.textContent='Credenciales incorrectas';
+      err.textContent='Error: ' + e.message;
+      console.error('Admin login error:', e);
     }
   };
 
