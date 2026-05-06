@@ -61,16 +61,7 @@
       }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
-      // Sync hidden form to trigger browser password save dialog
-      try{
-        const hUser = document.getElementById('login-user-hidden');
-        const hPass = document.getElementById('login-pass-hidden');
-        if(hUser) hUser.value = u;
-        if(hPass) hPass.value = p;
-        const form = document.getElementById('login-form-helper');
-        if(form) form.submit();
-      }catch(e){}
-      // Also try PasswordCredential API (Chrome/Edge)
+      // PasswordCredential API for browser save dialog (Chrome/Edge)
       if(window.PasswordCredential){
         try{const cred=new PasswordCredential({id:u,password:p,name:u});navigator.credentials.store(cred);}catch(e){}
       }
@@ -510,14 +501,26 @@ async function saveFirstLoginPass(){
   if(!np){toast('Ingresá una nueva contraseña','⚠️');return;}
   if(np.length<6){toast('Mínimo 6 caracteres','⚠️');return;}
   if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
+  // Wait for Firebase helpers to be ready
+  let attempts = 0;
+  while(!window.updateFirestoreUser && attempts<20){
+    await new Promise(r=>setTimeout(r,200));
+    attempts++;
+  }
+  if(!window.updateFirestoreUser){
+    toast('Error de conexión con Firebase. Recargá la página.','⚠️');
+    return;
+  }
   try{
-    // Use the updateFirestoreUser helper that uses already-loaded Firebase
     await window.updateFirestoreUser(String(S.currentUser.id), {password:np, mustChangePassword:false});
     S.currentUser.password = np;
     S.currentUser.mustChangePassword = false;
     closeModal('first-login-modal');
     toast('Contraseña guardada correctamente','✓');
-  }catch(e){toast('Error al guardar: '+e.message,'⚠️');console.error(e);}
+  }catch(e){
+    toast('Error al guardar: '+e.message,'⚠️');
+    console.error('saveFirstLoginPass error:',e);
+  }
 }
 
 
@@ -1503,11 +1506,7 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
     <div class="login-divider"></div>
     <div class="field-group"><div class="field-label">Usuario</div><input class="field-input" type="text" id="login-user" placeholder="Ingresá tu usuario" autocomplete="username" onkeydown="if(event.key==='Enter')doUserLogin()"></div>
     <div class="field-group"><div class="field-label">Contraseña</div><div style="position:relative"><input class="field-input" type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doUserLogin()" style="padding-right:46px"><button type="button" onclick="togglePass('login-pass')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;padding:0;line-height:1">👁</button></div></div>
-    <!-- Hidden form to trigger browser password save -->
-    <form id="login-form-helper" style="display:none" onsubmit="return false">
-      <input type="text" name="username" id="login-user-hidden" autocomplete="username">
-      <input type="password" name="password" id="login-pass-hidden" autocomplete="current-password">
-    </form>
+
     <button class="btn-primary" onclick="doUserLogin()">INGRESAR</button>
     <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
     <!-- Footer ayuda -->
