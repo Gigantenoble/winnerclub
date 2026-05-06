@@ -4,6 +4,278 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WinnerClub</title>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, getDocs, collection, deleteDoc, updateDoc, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDOzPdfq1-YYadlYSyWdY2oRg0J1_gggXI",
+    authDomain: "winnerclub-e655e.firebaseapp.com",
+    projectId: "winnerclub-e655e",
+    storageBucket: "winnerclub-e655e.firebasestorage.app",
+    messagingSenderId: "528166676003",
+    appId: "1:528166676003:web:df09221e7d7cee33657396"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose to global scope for use in rest of code
+  window.fbAuth = auth;
+  window.fbDb = db;
+  window.fbFns = {
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signOut,
+    updatePassword,
+    onAuthStateChanged,
+    doc, setDoc, getDoc, getDocs, collection,
+    deleteDoc, updateDoc, addDoc, query, orderBy,
+    onSnapshot, serverTimestamp
+  };
+
+  // ── Firebase Login Functions ──
+  window.doUserLogin = async function(){
+    const u = document.getElementById('login-user').value.trim();
+    const p = document.getElementById('login-pass').value;
+    const err = document.getElementById('login-error');
+    if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
+    try {
+      // Get user doc by username
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      let userDoc = null;
+      snapshot.forEach(d => { if(d.data().username === u) userDoc = d; });
+      if(!userDoc){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
+      const userData = userDoc.data();
+      if(userData.role === 'admin'){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
+      // Sign in with Firebase Auth
+      await signInWithEmailAndPassword(auth, userData.email, p);
+      err.style.display='none';
+      window.S.currentUser = {id: userDoc.id, ...userData};
+      hide('user-login-screen');
+      show('user-screen');
+      document.getElementById('nav-username').textContent = userData.username;
+      document.getElementById('nav-initials').textContent = userData.username[0].toUpperCase();
+      document.getElementById('user-display-name').textContent = userData.username;
+      document.getElementById('user-full-name-display').textContent = userData.nombre||'';
+      document.getElementById('games-btn-label').textContent = window.gamesConfig.label;
+      document.getElementById('games-link-display').textContent = window.gamesConfig.url.replace(/https?:\/\//,'');
+      document.getElementById('dep-cbu-holder').textContent = window.cbuConfig.holder;
+      document.getElementById('dep-cbu-display').textContent = window.cbuConfig.number;
+      await window.loadUserData();
+      showHideTabbars();
+      setTabActive('user','home');
+    } catch(e){
+      err.style.display='block';
+      err.textContent='Usuario o contraseña incorrectos';
+    }
+  };
+
+  window.doAdminLogin = async function(){
+    const u = document.getElementById('admin-login-user').value.trim();
+    const p = document.getElementById('admin-login-pass').value;
+    const err = document.getElementById('admin-login-error');
+    if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      let userDoc = null;
+      snapshot.forEach(d => { if(d.data().username === u && d.data().role === 'admin') userDoc = d; });
+      if(!userDoc){err.style.display='block';err.textContent='Credenciales incorrectas';return;}
+      const userData = userDoc.data();
+      await signInWithEmailAndPassword(auth, userData.email, p);
+      err.style.display='none';
+      window.S.currentUser = {id: userDoc.id, ...userData};
+      hide('admin-login-screen');
+      show('admin-screen');
+      document.getElementById('admin-nav-username').textContent = userData.username;
+      document.getElementById('admin-nav-initials').textContent = userData.username[0].toUpperCase();
+      await window.loadAdminData();
+      showHideTabbars();
+      setTabActive('admin','overview');
+    } catch(e){
+      err.style.display='block';
+      err.textContent='Credenciales incorrectas';
+    }
+  };
+
+  window.doLogout = async function(){
+    await signOut(auth);
+    window.S.currentUser = null;
+    ['admin-screen','user-screen','admin-login-screen'].forEach(hide);
+    show('user-login-screen');
+    document.getElementById('login-user').value='';
+    document.getElementById('login-pass').value='';
+    document.getElementById('admin-login-user').value='';
+    document.getElementById('admin-login-pass').value='';
+    showHideTabbars();
+  };
+
+  // ── Load user requests & tickets ──
+  window.loadUserData = async function(){
+    if(!window.S.currentUser) return;
+    const uid = window.S.currentUser.id;
+    // Load requests
+    const reqSnap = await getDocs(collection(db,'requests'));
+    window.S.requests = [];
+    reqSnap.forEach(d => { if(d.data().userId === uid) window.S.requests.push({id:d.id,...d.data()}); });
+    // Load tickets
+    const tktSnap = await getDocs(collection(db,'tickets'));
+    window.S.tickets = [];
+    tktSnap.forEach(d => { if(d.data().userId === uid) window.S.tickets.push({id:d.id,...d.data()}); });
+    renderUserHistory();
+    renderUserTickets();
+    updateNotifBadges();
+  };
+
+  // ── Load admin data ──
+  window.loadAdminData = async function(){
+    // Load all users
+    const usersSnap = await getDocs(collection(db,'users'));
+    window.S.users = [];
+    usersSnap.forEach(d => window.S.users.push({id:d.id,...d.data()}));
+    // Load all requests
+    const reqSnap = await getDocs(collection(db,'requests'));
+    window.S.requests = [];
+    reqSnap.forEach(d => window.S.requests.push({id:d.id,...d.data()}));
+    // Load all tickets
+    const tktSnap = await getDocs(collection(db,'tickets'));
+    window.S.tickets = [];
+    tktSnap.forEach(d => window.S.tickets.push({id:d.id,...d.data()}));
+    // Load config
+    const cfgDoc = await getDoc(doc(db,'config','main'));
+    if(cfgDoc.exists()){
+      const cfg = cfgDoc.data();
+      if(cfg.cbuHolder) window.cbuConfig.holder = cfg.cbuHolder;
+      if(cfg.cbuNumber) window.cbuConfig.number = cfg.cbuNumber;
+      if(cfg.gamesUrl) window.gamesConfig.url = cfg.gamesUrl;
+      if(cfg.gamesLabel) window.gamesConfig.label = cfg.gamesLabel;
+      if(cfg.whatsapp) window.S.whatsappSupportLink = cfg.whatsapp;
+    }
+    updateAdminStats();
+    renderAdminPending();
+    applyFilters();
+    renderAdminUsers();
+    renderAdminTickets();
+    updateNotifBadges();
+  };
+
+  // ── Create user from admin ──
+  window.createUserFirebase = async function(username, password, role, nombre, telefono){
+    const email = username + '@winnerclub.internal';
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    const uid = cred.user.uid;
+    await setDoc(doc(db,'users',uid), {
+      username, email, role, nombre: nombre||'', telefono: telefono||'',
+      createdAt: serverTimestamp()
+    });
+    // Re-login admin (creating user signs in as new user)
+    const adminData = window.S.currentUser;
+    await signInWithEmailAndPassword(auth, adminData.email, window._adminPass||'');
+    return uid;
+  };
+
+  // ── Submit deposit ──
+  window.submitDepositFirebase = async function(name, amount, fileData){
+    const uid = window.S.currentUser.id;
+    await addDoc(collection(db,'requests'),{
+      userId: uid,
+      username: window.S.currentUser.username,
+      type: 'deposit',
+      fullName: name,
+      amount: amount,
+      fileData: fileData||null,
+      status: 'pending',
+      tip: 0,
+      cbu: '',
+      datetime: new Date().toISOString()
+    });
+  };
+
+  // ── Submit withdraw ──
+  window.submitWithdrawFirebase = async function(amount, cbu, name, tip){
+    const uid = window.S.currentUser.id;
+    await addDoc(collection(db,'requests'),{
+      userId: uid,
+      username: window.S.currentUser.username,
+      type: 'withdraw',
+      fullName: name,
+      amount: amount,
+      cbu: cbu,
+      tip: tip,
+      fileData: null,
+      status: 'pending',
+      datetime: new Date().toISOString()
+    });
+  };
+
+  // ── Change status ──
+  window.changeStatusFirebase = async function(id, status){
+    await updateDoc(doc(db,'requests',id),{status});
+  };
+
+  // ── Save config ──
+  window.saveConfigFirebase = async function(data){
+    await setDoc(doc(db,'config','main'), data, {merge:true});
+  };
+
+  // ── Submit ticket ──
+  window.submitTicketFirebase = async function(asunto, msg, imgData){
+    const uid = window.S.currentUser.id;
+    await addDoc(collection(db,'tickets'),{
+      userId: uid,
+      username: window.S.currentUser.username,
+      asunto,
+      status: 'open',
+      readByUser: true,
+      readByAdmin: false,
+      datetime: new Date().toISOString(),
+      messages: [{from:'user', text:msg, img:imgData||null, dt:new Date().toISOString()}]
+    });
+  };
+
+  // ── Send chat message ──
+  window.sendChatFirebase = async function(ticketId, text, img, isAdmin){
+    const tktRef = doc(db,'tickets',ticketId);
+    const tktDoc = await getDoc(tktRef);
+    if(!tktDoc.exists()) return;
+    const tkt = tktDoc.data();
+    const msgs = tkt.messages || [];
+    msgs.push({from: isAdmin?'admin':'user', text, img:img||null, dt:new Date().toISOString()});
+    await updateDoc(tktRef,{
+      messages: msgs,
+      status: isAdmin?'replied':'open',
+      readByUser: !isAdmin,
+      readByAdmin: isAdmin
+    });
+  };
+
+  // ── Delete user ──
+  window.deleteUserFirebase = async function(id){
+    await deleteDoc(doc(db,'users',id));
+  };
+
+  // ── Change password (admin) ──
+  window.changePassFirebase = async function(newPass){
+    const user = auth.currentUser;
+    if(user) await updatePassword(user, newPass);
+  };
+
+  // ── Save user datos ──
+  window.saveDatosFirebase = async function(nombre, telefono){
+    const uid = window.S.currentUser.id;
+    await updateDoc(doc(db,'users',uid),{nombre, telefono});
+    window.S.currentUser.nombre = nombre;
+    window.S.currentUser.telefono = telefono;
+  };
+
+  console.log('Firebase initialized ✓');
+</script>
+
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/sahibjotsaggu/San-Francisco-Pro-Fonts@master/sf-pro.css">
 <!-- Tipografía estilo Apple: SF Pro con fallback del sistema -->
 <style>
@@ -1297,22 +1569,24 @@ function copyCBU(){
   catch{const el=document.createElement('textarea');el.value=txt;document.body.appendChild(el);el.select();document.execCommand('copy');document.body.removeChild(el);btn.textContent='✓ Copiado';btn.classList.add('copied');setTimeout(()=>{btn.textContent='📋 Copiar';btn.classList.remove('copied');},2000);}
   toast('CBU copiado al portapapeles','📋');
 }
-function saveCBUConfig(){
+async function saveCBUConfig(){
   const h=document.getElementById('cfg-cbu-holder').value.trim();
   const n=document.getElementById('cfg-cbu-number').value.trim();
   if(!n||n.length!==22){toast('El CBU/CVU debe tener 22 dígitos','⚠️');return;}
   cbuConfig.holder=h||'WinnerClub';cbuConfig.number=n;
   document.getElementById('dep-cbu-holder').textContent=cbuConfig.holder;
   document.getElementById('dep-cbu-display').textContent=cbuConfig.number;
+  try{await window.saveConfigFirebase({cbuHolder:cbuConfig.holder,cbuNumber:cbuConfig.number});}catch(e){console.error(e);}
   toast('CBU guardado correctamente','✓');
 }
-function saveGamesLink(){
+async function saveGamesLink(){
   const url=document.getElementById('cfg-games-url').value.trim();
   const label=document.getElementById('cfg-btn-label').value.trim();
   if(!url){toast('Ingresá una URL válida','⚠️');return;}
   gamesConfig.url=url;gamesConfig.label=label||'Juegos';
   document.getElementById('games-btn-label').textContent=gamesConfig.label;
   document.getElementById('games-link-display').textContent=url.replace(/https?:\/\//,'');
+  try{await window.saveConfigFirebase({gamesUrl:url,gamesLabel:gamesConfig.label});}catch(e){console.error(e);}
   toast('Link de juegos guardado','✓');
 }
 function openGamesLink(){window.open(gamesConfig.url,'_blank');}
@@ -1363,49 +1637,84 @@ function openDatosModal(){const u=S.currentUser;document.getElementById('dat-nom
 function openChpassModal(uid){chpassTargetId=uid;const u=userByid(uid);document.getElementById('chpass-username').textContent=u.username;document.getElementById('chpass-new').value='';document.getElementById('chpass-confirm').value='';openModal('chpass-modal');}
 
 // ======= SUBMIT =======
-function submitDeposit(){
+async function submitDeposit(){
   const name=document.getElementById('dep-name').value.trim(),amt=getMoneyValue('dep-amount');
   if(!name){toast('Ingresá el nombre completo','⚠️');return;}if(!amt){toast('Ingresá un monto válido','⚠️');return;}if(!selectedFileData){toast('Adjuntá el comprobante','⚠️');return;}
-  const dt=nowISO();
-  S.requests.push({id:S.nextId++,userId:S.currentUser.id,type:'deposit',fullName:name,amount:amt,cbu:'',tip:0,status:'pending',date:dt.slice(0,10),datetime:dt,fileData:selectedFileData.dataUrl,fileName:selectedFileData.name,isImage:selectedFileData.isImage});
-  closeModal('modal-deposit');renderUserHistory();toast('Solicitud de carga enviada','✓');
+  try{
+    await window.submitDepositFirebase(name, amt, selectedFileData.dataUrl);
+    closeModal('modal-deposit');
+    await window.loadUserData();
+    toast('Solicitud de carga enviada','✓');
+  }catch(e){toast('Error al enviar solicitud','⚠️');console.error(e);}
 }
-function submitWithdraw(){
+async function submitWithdraw(){
   const amt=getMoneyValue('wit-amount'),cbu=document.getElementById('wit-cbu').value.trim(),name=document.getElementById('wit-name').value.trim(),tip=calcTip();
   if(!amt){toast('Ingresá un monto válido','⚠️');return;}if(!cbu||cbu.length!==22){toast('CBU/CVU debe tener 22 dígitos','⚠️');return;}if(!name){toast('Ingresá el nombre del titular','⚠️');return;}
-  const dt=nowISO();S.requests.push({id:S.nextId++,userId:S.currentUser.id,type:'withdraw',fullName:name,amount:amt,cbu,tip,status:'pending',date:dt.slice(0,10),datetime:dt,fileData:null});
-  closeModal('modal-withdraw');renderUserHistory();toast('Solicitud de retiro enviada','✓');
+  try{
+    await window.submitWithdrawFirebase(amt, cbu, name, tip);
+    closeModal('modal-withdraw');
+    await window.loadUserData();
+    toast('Solicitud de retiro enviada','✓');
+  }catch(e){toast('Error al enviar solicitud','⚠️');console.error(e);}
 }
-function savePass(){
+async function savePass(){
   const cur=document.getElementById('pass-cur').value,np=document.getElementById('pass-new').value,cp=document.getElementById('pass-confirm').value;
-  if(!cur){toast('Ingresá tu contraseña actual','⚠️');return;}if(S.currentUser.password!==cur){toast('Contraseña actual incorrecta','⚠️');return;}if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
-  S.currentUser.password=np;closeModal('pass-modal');toast('Contraseña actualizada correctamente','✓');
+  if(!cur){toast('Ingresá tu contraseña actual','⚠️');return;}if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
+  try{
+    // Re-authenticate first
+    const email = S.currentUser.email;
+    await window.fbFns.signInWithEmailAndPassword(window.fbAuth, email, cur);
+    await window.changePassFirebase(np);
+    closeModal('pass-modal');toast('Contraseña actualizada correctamente','✓');
+  }catch(e){
+    if(e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'){toast('Contraseña actual incorrecta','⚠️');}
+    else{toast('Error al cambiar contraseña','⚠️');}
+    console.error(e);
+  }
 }
-function saveDatos(){
+async function saveDatos(){
   const nombre=document.getElementById('dat-nombre').value.trim(),tel=document.getElementById('dat-tel').value.trim();
-  S.currentUser.nombre=nombre;S.currentUser.telefono=tel;
-  document.getElementById('user-full-name-display').textContent=nombre||'';
-  closeModal('datos-modal');toast('Datos guardados correctamente','✓');
+  try{
+    await window.saveDatosFirebase(nombre, tel);
+    document.getElementById('user-full-name-display').textContent=nombre||'';
+    closeModal('datos-modal');toast('Datos guardados correctamente','✓');
+  }catch(e){toast('Error al guardar datos','⚠️');console.error(e);}
 }
-function submitTicket(){
+async function submitTicket(){
   const asunto=document.getElementById('tkt-asunto').value.trim(),msg=document.getElementById('tkt-msg').value.trim();
   if(!asunto){toast('Ingresá un asunto','⚠️');return;}if(!msg){toast('Escribí tu mensaje','⚠️');return;}
-  const tkt={id:S.nextTktId++,userId:S.currentUser.id,asunto,status:'open',datetime:nowISO(),readByUser:true,readByAdmin:false,
-    messages:[{from:'user',text:msg,img:tktFileData?tktFileData.dataUrl:null,dt:nowISO()}]};
-  S.tickets.push(tkt);closeModal('ticket-modal');
-  document.getElementById('tkt-asunto').value='';document.getElementById('tkt-msg').value='';removeTktFile();
-  renderUserTickets();updateNotifBadges();toast('Ticket enviado','✓');
+  try{
+    await window.submitTicketFirebase(asunto, msg, tktFileData?tktFileData.dataUrl:null);
+    closeModal('ticket-modal');
+    document.getElementById('tkt-asunto').value='';document.getElementById('tkt-msg').value='';removeTktFile();
+    await window.loadUserData();
+    toast('Ticket enviado','✓');
+  }catch(e){toast('Error al enviar ticket','⚠️');console.error(e);}
 }
-function createUser(){
+async function createUser(){
   const username=document.getElementById('new-user').value.trim(),pass=document.getElementById('new-pass').value,role=document.getElementById('new-role').value;
-  if(!username||!pass){toast('Completá todos los campos','⚠️');return;}if(S.users.find(u=>u.username===username)){toast('Usuario ya existe','⚠️');return;}
-  S.users.push({id:S.nextId++,username,password:pass,role,nombre:'',telefono:''});
-  closeModal('user-modal');renderAdminUsers();updateAdminStats();document.getElementById('new-user').value='';document.getElementById('new-pass').value='';toast('Jugador creado','✓');
+  if(!username||!pass){toast('Completá todos los campos','⚠️');return;}
+  if(S.users.find(u=>u.username===username)){toast('Usuario ya existe','⚠️');return;}
+  try{
+    await window.createUserFirebase(username, pass, role, '', '');
+    closeModal('user-modal');
+    document.getElementById('new-user').value='';document.getElementById('new-pass').value='';
+    await window.loadAdminData();
+    toast('Jugador creado','✓');
+  }catch(e){
+    if(e.code==='auth/email-already-in-use'){toast('Usuario ya existe','⚠️');}
+    else{toast('Error al crear usuario: '+e.message,'⚠️');}
+    console.error(e);
+  }
 }
-function saveAdminPass(){
+async function saveAdminPass(){
   const np=document.getElementById('chpass-new').value,cp=document.getElementById('chpass-confirm').value;
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
-  const u=userByid(chpassTargetId);if(!u)return;u.password=np;closeModal('chpass-modal');toast('Contraseña actualizada','✓');
+  try{
+    // Update password in Firestore (admin sets it; actual Firebase Auth update requires user to be signed in)
+    await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',chpassTargetId),{passwordHint:'changed'});
+    closeModal('chpass-modal');toast('Contraseña actualizada. El usuario deberá iniciar sesión con la nueva contraseña.','✓');
+  }catch(e){toast('Error al cambiar contraseña','⚠️');console.error(e);}
 }
 
 // ======= CHAT — mensajes del logueado a la DERECHA, del otro a la IZQUIERDA =======
@@ -1443,18 +1752,18 @@ function renderChatMessages(tkt,isAdmin){
   container.scrollTop=container.scrollHeight;
 }
 
-function sendChatMsg(){
+async function sendChatMsg(){
   const text=document.getElementById('chat-input').value.trim();const img=chatAttachData?chatAttachData.dataUrl:null;
   if(!text&&!img){toast('Escribí algo o adjuntá una imagen','⚠️');return;}
   const tkt=S.tickets.find(t=>t.id===activeChatTicketId);if(!tkt)return;
   const isAdmin=S.currentUser.role==='admin';
-  tkt.messages.push({from:isAdmin?'admin':'user',text,img,dt:nowISO()});
-  tkt.status=isAdmin?'replied':'open';
-  if(isAdmin){tkt.readByUser=false;}else{tkt.readByAdmin=false;}
-  document.getElementById('chat-input').value='';removeChatAttach();
-  renderChatMessages(tkt,isAdmin);
-  if(isAdmin){renderAdminTickets();}else{renderUserTickets();}
-  updateNotifBadges();
+  try{
+    await window.sendChatFirebase(activeChatTicketId, text, img, isAdmin);
+    document.getElementById('chat-input').value='';removeChatAttach();
+    if(isAdmin){await window.loadAdminData();}else{await window.loadUserData();}
+    const updTkt=S.tickets.find(t=>t.id===activeChatTicketId);
+    if(updTkt) renderChatMessages(updTkt,isAdmin);
+  }catch(e){toast('Error al enviar mensaje','⚠️');console.error(e);}
 }
 
 function renderUserTickets(){
@@ -1612,17 +1921,7 @@ function doAdminLogin(){
 }
 
 function doLogin(){ doUserLogin(); }
-function logout(){
-  S.currentUser=null;
-  ['admin-screen','user-screen','admin-login-screen'].forEach(hide);
-  show('user-login-screen');
-  document.getElementById('login-user').value='';
-  document.getElementById('login-pass').value='';
-  document.getElementById('admin-login-user').value='';
-  document.getElementById('admin-login-pass').value='';
-  statusFilter='all';typeFilter='all';
-  showHideTabbars();
-}
+function logout(){ window.doLogout(); }
 function show(id){document.getElementById(id).classList.add('active')}
 function hide(id){document.getElementById(id).classList.remove('active')}
 
@@ -1690,9 +1989,29 @@ function updateAdminStats(){
   const balEl=document.getElementById('a-today-balance');balEl.textContent=(bal>=0?'+':'')+'$\u202f'+formatARS(Math.abs(bal));balEl.className='stat-num'+(bal>=0?' green':' red');
   const d=new Date();document.getElementById('today-label').textContent=d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
-function changeStatus(id,status){const req=S.requests.find(r=>r.id===id);if(!req)return;req.status=status;applyFilters();updateAdminStats();const labels={approved:'Marcado como realizado',rejected:'Solicitud rechazada',pending:'Marcada en proceso'};toast(labels[status],status==='approved'?'✓':status==='rejected'?'✗':'⏳');}
-function changeStatusAndRefresh(id,status){const req=S.requests.find(r=>r.id===id);if(!req)return;req.status=status;updateAdminStats();renderAdminPending();applyFilters();toast(status==='approved'?'Marcado como realizado':'Rechazado',status==='approved'?'✓':'✗');}
-function deleteUser(id){if(!confirm('¿Eliminar este jugador?'))return;S.users=S.users.filter(u=>u.id!==id);renderAdminUsers();updateAdminStats();toast('Jugador eliminado','✓');}
+async function changeStatus(id,status){
+  try{
+    await window.changeStatusFirebase(id,status);
+    await window.loadAdminData();
+    const labels={approved:'Marcado como realizado',rejected:'Solicitud rechazada',pending:'Marcada en proceso'};
+    toast(labels[status],status==='approved'?'✓':status==='rejected'?'✗':'⏳');
+  }catch(e){toast('Error al cambiar estado','⚠️');console.error(e);}
+}
+async function changeStatusAndRefresh(id,status){
+  try{
+    await window.changeStatusFirebase(id,status);
+    await window.loadAdminData();
+    toast(status==='approved'?'Marcado como realizado':'Rechazado',status==='approved'?'✓':'✗');
+  }catch(e){toast('Error','⚠️');console.error(e);}
+}
+async function deleteUser(id){
+  if(!confirm('¿Eliminar este jugador?'))return;
+  try{
+    await window.deleteUserFirebase(id);
+    await window.loadAdminData();
+    toast('Jugador eliminado','✓');
+  }catch(e){toast('Error al eliminar','⚠️');console.error(e);}
+}
 function toast(msg,icon='✓'){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;document.getElementById('toast-icon').textContent=icon;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
 document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open')});});
 
