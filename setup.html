@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>WinnerClub - Setup</title>
+<style>
+body{font-family:Arial,sans-serif;background:#0a0a0a;color:#F0E8CC;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.box{background:#111;border:1px solid #D4AF37;border-radius:12px;padding:32px;width:400px}
+h2{color:#D4AF37;margin-bottom:20px;text-align:center}
+input{width:100%;padding:12px;margin-bottom:12px;background:#222;border:1px solid #D4AF37;border-radius:8px;color:#fff;font-size:14px;box-sizing:border-box}
+button{width:100%;padding:14px;background:linear-gradient(135deg,#B8860B,#D4AF37);border:none;border-radius:8px;color:#000;font-weight:700;font-size:16px;cursor:pointer}
+.msg{margin-top:16px;padding:12px;border-radius:8px;text-align:center;display:none}
+.msg.ok{background:rgba(46,204,113,0.2);color:#2ECC71;display:block}
+.msg.err{background:rgba(231,76,60,0.2);color:#E74C3C;display:block}
+p{color:#888;font-size:13px;text-align:center;margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="box">
+  <h2>⚙ Setup Inicial</h2>
+  <p>Creá el primer usuario administrador de WinnerClub.<br>Usá esta página solo una vez y luego eliminala.</p>
+  <input type="text" id="username" placeholder="Usuario (ej: admin)" />
+  <input type="password" id="password" placeholder="Contraseña del admin" />
+  <input type="password" id="confirm" placeholder="Confirmar contraseña" />
+  <button onclick="createAdmin()">CREAR ADMIN</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDOzPdfq1-YYadlYSyWdY2oRg0J1_gggXI",
+    authDomain: "winnerclub-e655e.firebaseapp.com",
+    projectId: "winnerclub-e655e",
+    storageBucket: "winnerclub-e655e.firebasestorage.app",
+    messagingSenderId: "528166676003",
+    appId: "1:528166676003:web:df09221e7d7cee33657396"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  window.createAdmin = async function(){
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const confirm = document.getElementById('confirm').value;
+    const msg = document.getElementById('msg');
+    
+    if(!username||!password){msg.className='msg err';msg.textContent='Completá todos los campos';return;}
+    if(password !== confirm){msg.className='msg err';msg.textContent='Las contraseñas no coinciden';return;}
+    if(password.length < 6){msg.className='msg err';msg.textContent='La contraseña debe tener al menos 6 caracteres';return;}
+    
+    const email = username + '@winnerclub.internal';
+    
+    try{
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        username: username,
+        email: email,
+        role: 'admin',
+        nombre: '',
+        telefono: '',
+        createdAt: new Date().toISOString()
+      });
+      msg.className='msg ok';
+      msg.innerHTML='✓ Admin <strong>' + username + '</strong> creado exitosamente.<br>Ya podés eliminar este archivo setup.html y entrar al panel.';
+    }catch(e){
+      msg.className='msg err';
+      if(e.code==='auth/email-already-in-use') msg.textContent='Este usuario ya existe';
+      else msg.textContent='Error: ' + e.message;
+    }
+  };
+</script>
+</body>
+</html>
