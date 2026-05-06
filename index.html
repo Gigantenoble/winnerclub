@@ -1117,6 +1117,12 @@ body { font-size: 17px !important; }
 </style>
 </head>
 <body>
+<script>
+// Initialize global state early so Firebase module can access it
+window.S = window.S || {currentUser:null, users:[], requests:[], tickets:[], whatsappSupportLink:''};
+window.gamesConfig = window.gamesConfig || {url:'https://winnerclub.games', label:'Juegos'};
+window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'0000000000000000000000'};
+</script>
 <div class="bg-pattern"></div><div class="bg-grid"></div>
 <div class="toast" id="toast"><span id="toast-icon">✓</span><span id="toast-msg"></span></div>
 <div class="img-modal" id="img-modal"><img id="img-modal-src" src="" alt=""><button class="img-modal-close" onclick="closeModal('img-modal')">Cerrar</button></div>
@@ -1557,6 +1563,10 @@ function ticketBadge(status){
 }
 
 // ======= STATE =======
+// Use window.S initialized above
+if(!window.S.nextId) window.S.nextId=6;
+if(!window.S.nextTktId) window.S.nextTktId=3;
+var S=window.S;
 const TODAY=nowDate();
 let statusFilter='all',typeFilter='all',chpassTargetId=null,activeChatTicketId=null;
 let gamesConfig={url:'https://Acceso directo',label:'Juegos'};
