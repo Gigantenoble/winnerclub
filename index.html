@@ -1770,7 +1770,41 @@ function handleTktFile(e){const f=e.target.files[0];if(f)processTktFile(f);}
 function processTktFile(file){const r=new FileReader();r.onload=e=>{tktFileData={dataUrl:e.target.result,name:file.name};document.getElementById('tkt-preview-img').src=e.target.result;document.getElementById('tkt-file-name').textContent=file.name;document.getElementById('tkt-preview').classList.add('show');};r.readAsDataURL(file);}
 function removeTktFile(){tktFileData=null;document.getElementById('tkt-file').value='';document.getElementById('tkt-preview').classList.remove('show');}
 let chatAttachData=null;
-function handleChatAttach(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{chatAttachData={dataUrl:ev.target.result,name:f.name};document.getElementById('chat-attach-img').src=ev.target.result;document.getElementById('chat-attach-name').textContent=f.name;document.getElementById('chat-attach-preview').classList.add('show');};r.readAsDataURL(f);}
+function handleChatAttach(e){
+  const f=e.target.files[0];
+  if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    const raw=ev.target.result;
+    // Compress image before storing to avoid Firestore 1MB limit
+    const img=new Image();
+    img.onload=function(){
+      const canvas=document.createElement('canvas');
+      const MAX=800;
+      const scale=Math.min(1,MAX/Math.max(img.width,img.height));
+      canvas.width=Math.round(img.width*scale);
+      canvas.height=Math.round(img.height*scale);
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      // Start at 0.7 quality, reduce until under 400KB
+      let quality=0.7;
+      let dataUrl=canvas.toDataURL('image/jpeg',quality);
+      while(dataUrl.length>400000 && quality>0.2){quality-=0.1;dataUrl=canvas.toDataURL('image/jpeg',quality);}
+      chatAttachData={dataUrl:dataUrl,name:f.name};
+      document.getElementById('chat-attach-img').src=dataUrl;
+      document.getElementById('chat-attach-name').textContent=f.name;
+      document.getElementById('chat-attach-preview').classList.add('show');
+    };
+    img.onerror=function(){
+      // Fallback: use raw if not an image
+      chatAttachData={dataUrl:raw,name:f.name};
+      document.getElementById('chat-attach-img').src=raw;
+      document.getElementById('chat-attach-name').textContent=f.name;
+      document.getElementById('chat-attach-preview').classList.add('show');
+    };
+    img.src=raw;
+  };
+  r.readAsDataURL(f);
+}
 function removeChatAttach(){chatAttachData=null;document.getElementById('chat-attach-preview').classList.remove('show');}
 
 // ======= PASS =======
@@ -2029,6 +2063,8 @@ function renderChatMessages(tkt,isAdmin){
 async function sendChatMsg(){
   const text=document.getElementById('chat-input').value.trim();const img=chatAttachData?chatAttachData.dataUrl:null;
   if(!text&&!img){toast('Escribí algo o adjuntá una imagen','⚠️');return;}
+  // Guard: image too large even after compression
+  if(img && img.length > 500000){ toast('Imagen demasiado grande, usá una más pequeña','⚠️'); return; }
   const isAdmin=S.currentUser.role==='admin';
   try{
     await window.sendChatFirebase(activeChatTicketId, text, img, isAdmin);
