@@ -56,8 +56,15 @@
       const userData = userDoc.data();
       if(userData.role === 'admin'){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
       // Check password directly from Firestore
-      if(userData.password !== p){
+      const passOk = await verifyPassword(p, userData.password);
+      if(!passOk){
         err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;
+      }
+      // Auto-migrate: if password was plain text, hash it now
+      if(!/^[a-f0-9]{64}$/.test(userData.password)){
+        const hashed = await hashPassword(p);
+        try{ await window.fbFns.updateDoc(userDoc.ref,{password: hashed}); }catch(e){}
+        userData.password = hashed;
       }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
@@ -222,9 +229,10 @@
   window.createUserFirebase = async function(username, password, role, nombre, telefono){
     // Generate a unique ID
     const uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
+    const hashedPassword = await hashPassword(password);
     await setDoc(doc(db,'users',uid), {
       username,
-      password,
+      password: hashedPassword,
       role,
       nombre: nombre||'',
       telefono: telefono||'',
@@ -533,8 +541,9 @@ async function saveFirstLoginPass(){
     return;
   }
   try{
-    await window.updateFirestoreUser(String(S.currentUser.id), {password:np, mustChangePassword:false});
-    S.currentUser.password = np;
+    const hashedNp = await hashPassword(np);
+    await window.updateFirestoreUser(String(S.currentUser.id), {password:hashedNp, mustChangePassword:false});
+    S.currentUser.password = hashedNp;
     S.currentUser.mustChangePassword = false;
     closeModal('first-login-modal');
     toast('Contraseña guardada correctamente','✓');
@@ -1878,6 +1887,26 @@ function ticketBadge(status){
 
 // ======= STATE =======
 const TODAY=nowDate();
+
+// ── Password hashing (SHA-256 via Web Crypto API) ──
+async function hashPassword(plain){
+  if(!plain) return '';
+  // Already hashed (64 hex chars)
+  if(/^[a-f0-9]{64}$/.test(plain)) return plain;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function verifyPassword(plain, stored){
+  if(!plain || !stored) return false;
+  // stored is already a hash
+  if(/^[a-f0-9]{64}$/.test(stored)){
+    const h = await hashPassword(plain);
+    return h === stored;
+  }
+  // Legacy: plain text comparison + migrate on success
+  return plain === stored;
+}
+
 let statusFilter='all',typeFilter='all',chpassTargetId=null,activeChatTicketId=null;
 let gamesConfig={url:'https://winnerclub.games',label:'Juegos'};
 let cbuConfig={holder:'WinnerClub S.A.',number:'0000000000000000000000'};
@@ -2061,7 +2090,8 @@ async function saveAdminPass(){
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
   if(np.length<6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
   try{
-    await window.updateFirestoreUser(String(chpassTargetId), {password:np});
+    const hashedNp2 = await hashPassword(np);
+    await window.updateFirestoreUser(String(chpassTargetId), {password:hashedNp2});
     closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
   }catch(e){toast('Error al cambiar contraseña','⚠️');console.error(e);}
 }
@@ -2262,14 +2292,21 @@ async function openWaHelpLogin(type){
   if(url.indexOf('wa.me') !== -1 && msg) url = url.split('?')[0] + '?text=' + msg;
   window.open(url, '_blank');
 }
-function doUserLogin(){
+async function doUserLogin(){
   const u=document.getElementById('login-user').value.trim();
   const p=document.getElementById('login-pass').value;
   const err=document.getElementById('login-error');
-  const found=S.users.find(x=>x.username===u&&x.password===p);
-  if(!found||found.role==='admin'){err.style.display='block';return;}
+  const candidate=S.users.find(x=>x.username===u&&x.role!=='admin');
+  if(!candidate){err.style.display='block';return;}
+  const passOk=await verifyPassword(p,candidate.password);
+  if(!passOk){err.style.display='block';return;}
+  // Auto-migrate plain text password to hash
+  if(!/^[a-f0-9]{64}$/.test(candidate.password)){
+    const hashed=await hashPassword(p);
+    try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(candidate.id)),{password:hashed}); candidate.password=hashed; }catch(e){}
+  }
   err.style.display='none';
-  S.currentUser=found;
+  S.currentUser=candidate;
   hide('user-login-screen');
   show('user-screen');
   document.getElementById('nav-username').textContent=found.username;
@@ -2284,14 +2321,21 @@ function doUserLogin(){
   showHideTabbars();
   setTabActive('user','home');
 }
-function doAdminLogin(){
+async function doAdminLogin(){
   const u=document.getElementById('admin-login-user').value.trim();
   const p=document.getElementById('admin-login-pass').value;
   const err=document.getElementById('admin-login-error');
-  const found=S.users.find(x=>x.username===u&&x.password===p&&x.role==='admin');
-  if(!found){err.style.display='block';return;}
+  const candidate=S.users.find(x=>x.username===u&&x.role==='admin');
+  if(!candidate){err.style.display='block';return;}
+  const passOk=await verifyPassword(p,candidate.password);
+  if(!passOk){err.style.display='block';return;}
+  // Auto-migrate plain text password to hash
+  if(!/^[a-f0-9]{64}$/.test(candidate.password)){
+    const hashed=await hashPassword(p);
+    try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(candidate.id)),{password:hashed}); candidate.password=hashed; }catch(e){}
+  }
   err.style.display='none';
-  S.currentUser=found;
+  S.currentUser=candidate;
   hide('admin-login-screen');
   show('admin-screen');
   document.getElementById('admin-nav-username').textContent=found.username;
