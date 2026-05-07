@@ -325,7 +325,7 @@
     const ref = await addDoc(collection(db,'tickets'),{
       userId: uid,
       username: window.S.currentUser.username,
-      asunto,
+      asunto: window.S.currentUser.username,
       status: 'open',
       readByUser: true,
       readByAdmin: false,
@@ -2445,7 +2445,7 @@ async function openRequestChat(reqId){
       requestId: reqId,
       userId: req.userId,
       username: user.username,
-      asunto: `Chat con ${user.username}`,
+      asunto: user.username,
       status: 'replied',
       createdBy: 'admin',
       datetime: new Date().toISOString(),
@@ -2563,7 +2563,7 @@ function showHideTabbars(){
 
 function getLoginURL(type){
   const base = window.location.href.split('?')[0];
-  return type === 'admin' ? base + '?login=admin' : base + '?login=user';
+  return type === 'admin' ? base.split('?')[0].replace(/\/+$/,'').replace(/\/index\.html$/,'') + '?login=admin' : base.split('?')[0] + '?login=user';
 }
 
 // Hide tabbars on initial load
@@ -2586,7 +2586,8 @@ showHideTabbars();
   try{
     const params = new URLSearchParams(window.location.search);
     const loginType = params.get('login') || params.get('panel') || 'user';
-    if(loginType === 'admin'){
+    const isAdminPath = window.location.pathname.replace(/\/+$/,'').endsWith('/admin');
+    if(loginType === 'admin' || isAdminPath){
       const userScreen = document.getElementById('user-login-screen');
       const adminScreen = document.getElementById('admin-login-screen');
       if(userScreen) userScreen.classList.remove('active');
