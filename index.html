@@ -143,52 +143,35 @@
       // Step 1: find admin profile in Firestore to get their real Firebase Auth email
       // We need to sign in anonymously first just to read, then re-auth with real credentials
       // Use the stored email from Firestore user doc
-      // Step 1: Authenticate with Firebase Auth
-      const adminEmail = u.toLowerCase() + '@winnerclub.internal';
-      let firebaseUid = null;
-      try{
-        const cred = await signInWithEmailAndPassword(auth, adminEmail, p);
-        firebaseUid = cred.user.uid;
-      }catch(authErr){
-        err.style.display='block';
-        err.textContent='Usuario o contraseña incorrectos';
-        return;
-      }
-      // Step 2: Read admin profile from Firestore using Firebase UID
-      // Try direct lookup by UID first, then fallback to username search
-      let userData = null;
-      let docId = firebaseUid;
-      try{
-        const directDoc = await getDoc(doc(db,'users',firebaseUid));
-        if(directDoc.exists() && directDoc.data().role === 'admin'){
-          userData = directDoc.data();
+      // Search by username in Firestore
+      const snapshot = await getDocs(collection(db,'users'));
+      let userDoc = null;
+      snapshot.forEach(d => {
+        const data = d.data();
+        if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin'){
+          userDoc = d;
         }
-      }catch(e){}
-      // Fallback: search by username (handles mismatched UIDs)
-      if(!userData){
-        try{
-          const snapshot = await getDocs(collection(db,'users'));
-          snapshot.forEach(d => {
-            const data = d.data();
-            if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin'){
-              userData = data; docId = d.id;
-            }
-          });
-        }catch(e){}
-      }
-      if(!userData){
-        // Auth succeeded but no Firestore profile — create one automatically
-        userData = { username: u, role: 'admin', email: adminEmail, nombre: '', telefono: '' };
-        try{ await setDoc(doc(db,'users',firebaseUid), {...userData, createdAt: serverTimestamp()}); }catch(e){}
-        docId = firebaseUid;
-      }
-      if(userData.role !== 'admin'){
+      });
+      if(!userDoc){
         err.style.display='block';
         err.textContent='Usuario o contraseña incorrectos';
         return;
+      }
+      const userData = userDoc.data();
+      // Verify password with hash
+      const passOk = await window.verifyPassword(p, userData.password);
+      if(!passOk){
+        err.style.display='block';
+        err.textContent='Usuario o contraseña incorrectos';
+        return;
+      }
+      // Auto-migrate plain text to hash
+      if(!/^[a-f0-9]{64}$/.test(userData.password)){
+        const hashed = await window.hashPassword(p);
+        try{ await updateDoc(doc(db,'users',userDoc.id),{password:hashed}); }catch(e){}
       }
       err.style.display='none';
-      window.S.currentUser = {id: docId, ...userData};
+      window.S.currentUser = {id: userDoc.id, ...userData};
       hide('admin-login-screen');
       show('admin-screen');
       document.getElementById('admin-nav-username').textContent = userData.username;
