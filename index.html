@@ -108,7 +108,6 @@
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
       let userDoc = null;
-      // Case-insensitive username search
       snapshot.forEach(d => {
         const data = d.data();
         if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin') {
@@ -117,21 +116,24 @@
       });
       if(!userDoc){
         err.style.display='block';
-        err.textContent='Usuario no encontrado o no es admin';
+        err.textContent='Usuario o contraseña incorrectos';
         return;
       }
       const userData = userDoc.data();
-      try {
-        await signInWithEmailAndPassword(auth, userData.email, p);
-      } catch(authErr) {
+      // Verify password with hash
+      const passOk = await verifyPassword(p, userData.password);
+      if(!passOk){
         err.style.display='block';
-        if(authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential'){
-          err.textContent='Contraseña incorrecta';
-        } else {
-          err.textContent='Error: ' + authErr.code;
-        }
+        err.textContent='Usuario o contraseña incorrectos';
         return;
       }
+      // Auto-migrate plain text to hash
+      if(!/^[a-f0-9]{64}$/.test(userData.password)){
+        const hashed = await hashPassword(p);
+        try{ await updateDoc(doc(db,'users',userDoc.id),{password:hashed}); }catch(e){}
+      }
+      // Also sign in with Firebase Auth for Firestore rules
+      try{ await signInWithEmailAndPassword(auth, userData.email, p); }catch(e){}
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
       hide('admin-login-screen');
