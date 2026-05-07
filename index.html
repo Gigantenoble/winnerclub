@@ -2293,39 +2293,7 @@ async function openWaHelpLogin(type){
   window.open(url, '_blank');
 }
 // doUserLogin handled by window.doUserLogin (Firebase block above)
-async function doAdminLogin(){
-  const u=document.getElementById('admin-login-user').value.trim();
-  const p=document.getElementById('admin-login-pass').value;
-  const err=document.getElementById('admin-login-error');
-  // Use Firestore directly to verify with hash
-  try{
-    const {collection,getDocs,query,where} = window.fbFns;
-    const snap = await getDocs(collection(window.fbDb,'users'));
-    let userDoc = null;
-    snap.forEach(d=>{ if(d.data().username&&d.data().username.toLowerCase()===u.toLowerCase()&&d.data().role==='admin') userDoc=d; });
-    if(!userDoc){err.style.display='block';return;}
-    const userData = userDoc.data();
-    const passOk = await verifyPassword(p, userData.password);
-    if(!passOk){err.style.display='block';return;}
-    // Auto-migrate plain text password to hash
-    if(!/^[a-f0-9]{64}$/.test(userData.password)){
-      const hashed=await hashPassword(p);
-      try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',userDoc.id),{password:hashed}); userData.password=hashed; }catch(e){}
-    }
-    err.style.display='none';
-    S.currentUser={id:userDoc.id,...userData};
-    hide('admin-login-screen');
-    show('admin-screen');
-    document.getElementById('admin-nav-username').textContent=userData.username;
-    document.getElementById('admin-nav-initials').textContent=userData.username[0].toUpperCase();
-    updateAdminStats();renderAdminPending();applyFilters();renderAdminUsers();renderAdminTickets();updateNotifBadges();
-    showHideTabbars();
-    setTabActive('admin','overview');
-  }catch(e){
-    err.style.display='block';
-    err.textContent='Error de conexión, intentá de nuevo';
-    console.error('doAdminLogin error:',e);
-  }
+// doAdminLogin handled by window.doAdminLogin (Firebase Auth block above)
 }
 
 function doLogin(){ doUserLogin(); }
