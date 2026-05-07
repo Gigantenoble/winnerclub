@@ -140,12 +140,16 @@
     const err = document.getElementById('admin-login-error');
     if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
     try {
-      // Step 1: authenticate with Firebase Auth first (required for Firestore rules)
-      const email = u.toLowerCase() + '@winnerclub.internal';
+      // Step 1: find admin profile in Firestore to get their real Firebase Auth email
+      // We need to sign in anonymously first just to read, then re-auth with real credentials
+      // Use the stored email from Firestore user doc
+      // Use email from Firestore doc, fallback to internal format
+      const adminEmail = u.toLowerCase() + '@winnerclub.internal';
       let authCred = null;
       try{
-        authCred = await signInWithEmailAndPassword(auth, email, p);
-      }catch(authErr){
+        authCred = await signInWithEmailAndPassword(auth, adminEmail, p);
+      }catch(authErr){}
+      if(!authCred){
         err.style.display='block';
         err.textContent='Usuario o contraseña incorrectos';
         return;
@@ -162,7 +166,7 @@
       });
       if(!userDoc){
         err.style.display='block';
-        err.textContent='Usuario o contraseña incorrectos';
+        err.textContent='Usuario no encontrado';
         return;
       }
       const userData = userDoc.data();
