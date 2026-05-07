@@ -2090,10 +2090,15 @@ async function saveAdminPass(){
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
   if(np.length<6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
   try{
-    const hashedNp2 = await window.hashPassword(np);
+    let hashedNp2 = np;
+    if(window.hashPassword) hashedNp2 = await window.hashPassword(np);
+    if(!window.updateFirestoreUser){toast('Error de conexión, recargá la página','⚠️');return;}
     await window.updateFirestoreUser(String(chpassTargetId), {password:hashedNp2});
+    // Update in local S.users too
+    const u = S.users.find(x=>String(x.id)===String(chpassTargetId));
+    if(u) u.password = hashedNp2;
     closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
-  }catch(e){toast('Error al cambiar contraseña','⚠️');console.error(e);}
+  }catch(e){toast('Error al cambiar contraseña: '+e.message,'⚠️');console.error(e);}
 }
 
 // ======= CHAT — mensajes del logueado a la DERECHA, del otro a la IZQUIERDA =======
