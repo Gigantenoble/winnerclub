@@ -2093,10 +2093,10 @@ async function saveAdminPass(){
     let hashedNp2 = np;
     if(window.hashPassword) hashedNp2 = await window.hashPassword(np);
     if(!window.updateFirestoreUser){toast('Error de conexión, recargá la página','⚠️');return;}
-    await window.updateFirestoreUser(String(chpassTargetId), {password:hashedNp2});
+    await window.updateFirestoreUser(String(chpassTargetId), {password:hashedNp2, mustChangePassword:true});
     // Update in local S.users too
     const u = S.users.find(x=>String(x.id)===String(chpassTargetId));
-    if(u) u.password = hashedNp2;
+    if(u){ u.password = hashedNp2; u.mustChangePassword = true; }
     closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
   }catch(e){toast('Error al cambiar contraseña: '+e.message,'⚠️');console.error(e);}
 }
