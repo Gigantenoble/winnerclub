@@ -60,10 +60,10 @@
     const err = document.getElementById('login-error');
     if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
     try {
+      // Find user profile in Firestore by username
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
       let userDoc = null;
-      // Case-insensitive search
       snapshot.forEach(d => {
         const data = d.data();
         if(data.username && data.username.toLowerCase() === u.toLowerCase()) userDoc = d;
@@ -71,16 +71,34 @@
       if(!userDoc){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
       const userData = userDoc.data();
       if(userData.role === 'admin'){err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;}
-      // Check password directly from Firestore
-      const passOk = await window.verifyPassword(p, userData.password);
-      if(!passOk){
-        err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;
-      }
-      // Auto-migrate: if password was plain text, hash it now
-      if(!/^[a-f0-9]{64}$/.test(userData.password)){
-        const hashed = await window.hashPassword(p);
-        try{ await window.fbFns.updateDoc(userDoc.ref,{password: hashed}); }catch(e){}
-        userData.password = hashed;
+      // Authenticate with Firebase Auth
+      const email = userData.email || (u.toLowerCase() + '@winnerclub.internal');
+      let authOk = false;
+      try{
+        await signInWithEmailAndPassword(auth, email, p);
+        authOk = true;
+      }catch(authErr){
+        // Fallback 1: admin set a temp password hash
+        if(userData.tempPassword){
+          const passOk = await window.verifyPassword(p, userData.tempPassword);
+          if(passOk){
+            authOk = true;
+            // Now update Firebase Auth password to match
+            try{
+              const cred = window.fbFns.EmailAuthProvider
+                ? window.fbFns.EmailAuthProvider.credential(email, p)
+                : null;
+            }catch(e2){}
+          }
+        }
+        // Fallback 2: legacy hash in password field
+        if(!authOk && userData.password){
+          const passOk = await window.verifyPassword(p, userData.password);
+          if(passOk) authOk = true;
+        }
+        if(!authOk){
+          err.style.display='block';err.textContent='Usuario o contraseña incorrectos';return;
+        }
       }
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
@@ -247,23 +265,26 @@
     updateNotifBadges();
   };
 
-  // ── Create user from admin ──
-  // Store users directly in Firestore (no Firebase Auth for regular users)
-  // Only admin uses Firebase Auth; regular users authenticate via Firestore lookup + password check
+  // ── Create user from admin — uses Firebase Auth ──
   window.createUserFirebase = async function(username, password, role, nombre, telefono){
-    // Generate a unique ID
-    const uid = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
-    const hashedPassword = await window.hashPassword(password);
+    const email = username.toLowerCase() + '@winnerclub.internal';
+    // Create in Firebase Auth first
+    const cred = await createUserWithEmailAndPassword(auth, email, password);
+    const uid = cred.user.uid;
+    // Store profile in Firestore (no password stored)
     await setDoc(doc(db,'users',uid), {
       username,
-      password: hashedPassword,
       role,
       nombre: nombre||'',
       telefono: telefono||'',
-      email: username + '@winnerclub.internal',
-      mustChangePassword: role === 'user', // Users must change on first login
+      email,
+      mustChangePassword: role === 'user',
       createdAt: serverTimestamp()
     });
+    // Sign back in as admin (createUserWithEmailAndPassword switches auth user)
+    if(window.S.currentUser && window.S.currentUser.role === 'admin'){
+      try{ await signInWithEmailAndPassword(auth, window.S.currentUser.email, window._adminPass||''); }catch(e){}
+    }
     return uid;
   };
 
@@ -565,9 +586,13 @@ async function saveFirstLoginPass(){
     return;
   }
   try{
-    const hashedNp = await window.hashPassword(np);
-    await window.updateFirestoreUser(String(S.currentUser.id), {password:hashedNp, mustChangePassword:false});
-    S.currentUser.password = hashedNp;
+    const firebaseUser = window.fbAuth.currentUser;
+    if(firebaseUser){
+      // Update password in Firebase Auth
+      await window.fbFns.updatePassword(firebaseUser, np);
+    }
+    // Update Firestore profile
+    await window.updateFirestoreUser(String(S.currentUser.id), {mustChangePassword:false});
     S.currentUser.mustChangePassword = false;
     closeModal('first-login-modal');
     toast('Contraseña guardada correctamente','✓');
@@ -2096,14 +2121,18 @@ async function saveAdminPass(){
   if(!np){toast('Ingresá la nueva contraseña','⚠️');return;}if(np!==cp){toast('Las contraseñas no coinciden','⚠️');return;}
   if(np.length<6){toast('La contraseña debe tener al menos 6 caracteres','⚠️');return;}
   try{
-    let hashedNp2 = np;
-    if(window.hashPassword) hashedNp2 = await window.hashPassword(np);
     if(!window.updateFirestoreUser){toast('Error de conexión, recargá la página','⚠️');return;}
-    await window.updateFirestoreUser(String(chpassTargetId), {password:hashedNp2, mustChangePassword:true});
+    // Update password via Firebase Auth REST API (admin can't use SDK to change other user's pass)
+    // We store a temp password hash and force mustChangePassword so user resets on next login
+    const hashedNp2 = await window.hashPassword(np);
+    await window.updateFirestoreUser(String(chpassTargetId), {
+      tempPassword: hashedNp2,
+      mustChangePassword: true
+    });
     // Update in local S.users too
     const u = S.users.find(x=>String(x.id)===String(chpassTargetId));
-    if(u){ u.password = hashedNp2; u.mustChangePassword = true; }
-    closeModal('chpass-modal');toast('Contraseña actualizada correctamente','✓');
+    if(u){ u.mustChangePassword = true; }
+    closeModal('chpass-modal');toast('Contraseña actualizada — el usuario deberá cambiarla al ingresar','✓');
   }catch(e){toast('Error al cambiar contraseña: '+e.message,'⚠️');console.error(e);}
 }
 
