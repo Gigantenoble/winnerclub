@@ -2373,27 +2373,26 @@ async function openEmergencyWhatsApp(){
 
 
 
-function guardarWhatsAppEmergenciaOK(e){
+async function guardarWhatsAppEmergenciaOK(e){
   if(e && e.preventDefault) e.preventDefault();
-  // Lee siempre del input en la página de Configuración (único input)
   const input = document.getElementById('wa-support-link');
   let val = input ? input.value.trim() : '';
-  if(!val){
-    toast('Ingresá un link de WhatsApp','⚠️');
-    return false;
-  }
+  if(!val){ toast('Ingresá un link de WhatsApp','⚠️'); return false; }
   // Auto-corregir: número suelto → wa.me
   if(/^\d{8,15}$/.test(val.replace(/\D/g,'')) && !val.includes('wa.me')){
     val = 'https://wa.me/' + val.replace(/\D/g,'');
     if(input) input.value = val;
   }
-  // Auto-corregir: wa.me sin https
-  if(val.startsWith('wa.me/')){
-    val = 'https://' + val;
-    if(input) input.value = val;
-  }
+  if(val.startsWith('wa.me/')){ val = 'https://' + val; if(input) input.value = val; }
   S.whatsappSupportLink = val;
-  toast('WhatsApp guardado correctamente','✓');
+  // Save to Firestore so it persists
+  try{
+    await window.saveConfigFirebase({whatsapp: val});
+    toast('WhatsApp guardado correctamente','✓');
+  }catch(err){
+    toast('WhatsApp guardado localmente (error Firestore: '+err.message+')','⚠️');
+    console.error(err);
+  }
   return false;
 }
 
