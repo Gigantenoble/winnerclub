@@ -140,6 +140,17 @@
     const err = document.getElementById('admin-login-error');
     if(!u||!p){err.style.display='block';err.textContent='Completá los campos';return;}
     try {
+      // Step 1: authenticate with Firebase Auth first (required for Firestore rules)
+      const email = u.toLowerCase() + '@winnerclub.internal';
+      let authCred = null;
+      try{
+        authCred = await signInWithEmailAndPassword(auth, email, p);
+      }catch(authErr){
+        err.style.display='block';
+        err.textContent='Usuario o contraseña incorrectos';
+        return;
+      }
+      // Step 2: now read Firestore (auth token is active)
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
       let userDoc = null;
@@ -155,20 +166,6 @@
         return;
       }
       const userData = userDoc.data();
-      // Verify password with hash
-      const passOk = await window.verifyPassword(p, userData.password);
-      if(!passOk){
-        err.style.display='block';
-        err.textContent='Usuario o contraseña incorrectos';
-        return;
-      }
-      // Auto-migrate plain text to hash
-      if(!/^[a-f0-9]{64}$/.test(userData.password)){
-        const hashed = await window.hashPassword(p);
-        try{ await updateDoc(doc(db,'users',userDoc.id),{password:hashed}); }catch(e){}
-      }
-      // Also sign in with Firebase Auth for Firestore rules
-      try{ await signInWithEmailAndPassword(auth, userData.email, p); }catch(e){}
       err.style.display='none';
       window.S.currentUser = {id: userDoc.id, ...userData};
       hide('admin-login-screen');
