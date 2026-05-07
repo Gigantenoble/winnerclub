@@ -2292,57 +2292,40 @@ async function openWaHelpLogin(type){
   if(url.indexOf('wa.me') !== -1 && msg) url = url.split('?')[0] + '?text=' + msg;
   window.open(url, '_blank');
 }
-async function doUserLogin(){
-  const u=document.getElementById('login-user').value.trim();
-  const p=document.getElementById('login-pass').value;
-  const err=document.getElementById('login-error');
-  const candidate=S.users.find(x=>x.username===u&&x.role!=='admin');
-  if(!candidate){err.style.display='block';return;}
-  const passOk=await verifyPassword(p,candidate.password);
-  if(!passOk){err.style.display='block';return;}
-  // Auto-migrate plain text password to hash
-  if(!/^[a-f0-9]{64}$/.test(candidate.password)){
-    const hashed=await hashPassword(p);
-    try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(candidate.id)),{password:hashed}); candidate.password=hashed; }catch(e){}
-  }
-  err.style.display='none';
-  S.currentUser=candidate;
-  hide('user-login-screen');
-  show('user-screen');
-  document.getElementById('nav-username').textContent=found.username;
-  document.getElementById('nav-initials').textContent=found.username[0].toUpperCase();
-  document.getElementById('user-display-name').textContent=found.username;
-  document.getElementById('user-full-name-display').textContent=found.nombre||'';
-  document.getElementById('games-btn-label').textContent=gamesConfig.label;
-  document.getElementById('games-link-display').textContent=gamesConfig.url.replace(/https?:\/\//,'');
-  document.getElementById('dep-cbu-holder').textContent=cbuConfig.holder;
-  document.getElementById('dep-cbu-display').textContent=cbuConfig.number;
-  renderUserHistory();renderUserTickets();updateNotifBadges();
-  showHideTabbars();
-  setTabActive('user','home');
-}
+// doUserLogin handled by window.doUserLogin (Firebase block above)
 async function doAdminLogin(){
   const u=document.getElementById('admin-login-user').value.trim();
   const p=document.getElementById('admin-login-pass').value;
   const err=document.getElementById('admin-login-error');
-  const candidate=S.users.find(x=>x.username===u&&x.role==='admin');
-  if(!candidate){err.style.display='block';return;}
-  const passOk=await verifyPassword(p,candidate.password);
-  if(!passOk){err.style.display='block';return;}
-  // Auto-migrate plain text password to hash
-  if(!/^[a-f0-9]{64}$/.test(candidate.password)){
-    const hashed=await hashPassword(p);
-    try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',String(candidate.id)),{password:hashed}); candidate.password=hashed; }catch(e){}
+  // Use Firestore directly to verify with hash
+  try{
+    const {collection,getDocs,query,where} = window.fbFns;
+    const snap = await getDocs(collection(window.fbDb,'users'));
+    let userDoc = null;
+    snap.forEach(d=>{ if(d.data().username&&d.data().username.toLowerCase()===u.toLowerCase()&&d.data().role==='admin') userDoc=d; });
+    if(!userDoc){err.style.display='block';return;}
+    const userData = userDoc.data();
+    const passOk = await verifyPassword(p, userData.password);
+    if(!passOk){err.style.display='block';return;}
+    // Auto-migrate plain text password to hash
+    if(!/^[a-f0-9]{64}$/.test(userData.password)){
+      const hashed=await hashPassword(p);
+      try{ await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'users',userDoc.id),{password:hashed}); userData.password=hashed; }catch(e){}
+    }
+    err.style.display='none';
+    S.currentUser={id:userDoc.id,...userData};
+    hide('admin-login-screen');
+    show('admin-screen');
+    document.getElementById('admin-nav-username').textContent=userData.username;
+    document.getElementById('admin-nav-initials').textContent=userData.username[0].toUpperCase();
+    updateAdminStats();renderAdminPending();applyFilters();renderAdminUsers();renderAdminTickets();updateNotifBadges();
+    showHideTabbars();
+    setTabActive('admin','overview');
+  }catch(e){
+    err.style.display='block';
+    err.textContent='Error de conexión, intentá de nuevo';
+    console.error('doAdminLogin error:',e);
   }
-  err.style.display='none';
-  S.currentUser=candidate;
-  hide('admin-login-screen');
-  show('admin-screen');
-  document.getElementById('admin-nav-username').textContent=found.username;
-  document.getElementById('admin-nav-initials').textContent=found.username[0].toUpperCase();
-  updateAdminStats();renderAdminPending();applyFilters();renderAdminUsers();renderAdminTickets();updateNotifBadges();
-  showHideTabbars();
-  setTabActive('admin','overview');
 }
 
 function doLogin(){ doUserLogin(); }
