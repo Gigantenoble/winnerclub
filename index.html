@@ -2152,13 +2152,18 @@ function switchToAdminLogin(){
   document.getElementById('login-error').style.display='none';
   show('admin-login-screen');
 }
-function openWaHelpLogin(type){
+async function openWaHelpLogin(type){
   var link = S.whatsappSupportLink || '';
+  // If not loaded yet, try fetching from Firestore
+  if(!link && window.loadConfigFromFirestore){ try{ link=await window.loadConfigFromFirestore(); }catch(e){} }
   if(!link){ toast('El administrador aún no configuró el WhatsApp','!'); return; }
   var msg = '';
   if(type === 'pass') msg = encodeURIComponent('Hola, olvidé mi contraseña en WinnerClub.');
   else if(type === 'new') msg = encodeURIComponent('Hola, quisiera crear un usuario en WinnerClub.');
-  var url = link;
+  var url = link.trim();
+  // Fix: ensure URL has https:// prefix (prevents relative URL bug)
+  if(url.startsWith('wa.me/')) url = 'https://' + url;
+  else if(!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://wa.me/' + url.replace(/\D/g,'');
   if(url.indexOf('wa.me') !== -1 && msg) url = url.split('?')[0] + '?text=' + msg;
   window.open(url, '_blank');
 }
@@ -2363,7 +2368,11 @@ async function openEmergencyWhatsApp(){
   let link = S.whatsappSupportLink || '';
   if(!link && window.loadConfigFromFirestore){ try{ link=await window.loadConfigFromFirestore(); }catch(e){} }
   if(!link){ toast('WhatsApp no configurado aún','⚠️'); return; }
-  window.open(link,'_blank');
+  // Fix: ensure URL has https:// prefix
+  let url = link.trim();
+  if(url.startsWith('wa.me/')) url = 'https://' + url;
+  else if(!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://wa.me/' + url.replace(/\D/g,'');
+  window.open(url,'_blank');
 }
 
 
