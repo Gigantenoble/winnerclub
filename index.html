@@ -2301,65 +2301,65 @@ async function deleteUser(id){
 function toast(msg,icon='✓'){const t=document.getElementById('toast');document.getElementById('toast-msg').textContent=msg;document.getElementById('toast-icon').textContent=icon;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
 document.querySelectorAll('.modal-overlay').forEach(m=>{m.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open')});});
 
-function openRequestChat(reqId){
+async function openRequestChat(reqId){
   reqId = String(reqId);
   const req = S.requests.find(r => String(r.id) === reqId);
-  if(!req){
-    toast('Solicitud no encontrada','✕');
-    return;
-  }
+  if(!req){ toast('Solicitud no encontrada','✕'); return; }
 
   const user = userByid(req.userId);
-  if(!user){
-    toast('Usuario no encontrado','✕');
-    return;
-  }
+  if(!user){ toast('Usuario no encontrado','✕'); return; }
 
   const tipoTexto = req.type === 'deposit' ? 'carga' : 'retiro';
-  const displayUser = user.username;
 
+  // Check if ticket already exists in Firestore for this request
   const existing = S.tickets.find(t =>
-    t.requestId === reqId &&
+    String(t.requestId) === reqId &&
     t.userId === req.userId &&
     t.createdBy === 'admin'
   );
 
   if(existing){
-    existing.readByUser = false;
-    existing.readByAdmin = true;
-    existing.status = 'replied';
-    renderAdminTickets();
-    updateNotifBadges();
-    openChat(existing.id,true);
+    // Update readBy flags in Firestore
+    try{
+      await window.fbFns.updateDoc(window.fbFns.doc(window.fbDb,'tickets',String(existing.id)),{
+        readByUser: false, readByAdmin: true, status: 'replied'
+      });
+    }catch(e){ console.error('Error updating existing ticket:',e); }
+    openChat(existing.id, true);
     toast('Chat de soporte ya abierto','💬');
     return;
   }
 
-  const ticket = {
-    id: S.nextTktId++,
-    requestId: reqId,
-    userId: req.userId,
-    asunto: `Revisión de solicitud de ${tipoTexto}`,
-    status: 'replied',
-    createdBy: 'admin',
-    datetime: nowISO(),
-    readByUser: false,
-    readByAdmin: true,
-    messages: [
-      {
+  // Create ticket in Firestore so the user can see it
+  try{
+    const ticketData = {
+      requestId: reqId,
+      userId: req.userId,
+      username: user.username,
+      asunto: `Revisión de solicitud de ${tipoTexto}`,
+      status: 'replied',
+      createdBy: 'admin',
+      datetime: new Date().toISOString(),
+      readByUser: false,
+      readByAdmin: true,
+      messages: [{
         from: 'admin',
         text: `Hola ${user.username}. Necesitamos revisar tu solicitud de ${tipoTexto} por ${fmtAmt(req.amount || 0)}. Respondé por este chat para poder ayudarte.`,
         img: null,
-        dt: nowISO()
-      }
-    ]
-  };
-
-  S.tickets.unshift(ticket);
-  renderAdminTickets();
-  updateNotifBadges();
-  toast('Ticket creado y enviado al usuario','💬');
-  openChat(ticket.id,true);
+        dt: new Date().toISOString()
+      }]
+    };
+    const docRef = await window.fbFns.addDoc(window.fbFns.collection(window.fbDb,'tickets'), ticketData);
+    const newTicket = {id: docRef.id, ...ticketData};
+    S.tickets.unshift(newTicket);
+    renderAdminTickets();
+    updateNotifBadges();
+    toast('Ticket creado y enviado al usuario','💬');
+    openChat(docRef.id, true);
+  }catch(e){
+    toast('Error al crear ticket','⚠️');
+    console.error('Error creating ticket:',e);
+  }
 }
 
 
