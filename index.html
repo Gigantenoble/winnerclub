@@ -143,35 +143,45 @@
       // Step 1: find admin profile in Firestore to get their real Firebase Auth email
       // We need to sign in anonymously first just to read, then re-auth with real credentials
       // Use the stored email from Firestore user doc
-      // Use email from Firestore doc, fallback to internal format
+      // Authenticate with Firebase Auth first
       const adminEmail = u.toLowerCase() + '@winnerclub.internal';
-      let authCred = null;
       try{
-        authCred = await signInWithEmailAndPassword(auth, adminEmail, p);
-      }catch(authErr){}
-      if(!authCred){
+        await signInWithEmailAndPassword(auth, adminEmail, p);
+      }catch(authErr){
+        err.style.display='block';
+        err.textContent='Usuario o contraseña incorrectos';
+        console.error('Firebase Auth error:', authErr.code, authErr.message);
+        return;
+      }
+      // Now read Firestore with active auth token
+      // Use known admin UID directly to avoid full collection scan
+      const ADMIN_UID = 'xqeJzFZeZsYSZsnjcaGjqtm4Agz2';
+      let userData = null;
+      let docId = null;
+      try{
+        const directDoc = await getDoc(doc(db,'users',ADMIN_UID));
+        if(directDoc.exists()){
+          userData = directDoc.data();
+          docId = ADMIN_UID;
+        }
+      }catch(e){}
+      // Fallback: search by username
+      if(!userData){
+        const snapshot = await getDocs(collection(db,'users'));
+        snapshot.forEach(d => {
+          const data = d.data();
+          if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin'){
+            userData = data; docId = d.id;
+          }
+        });
+      }
+      if(!userData || userData.role !== 'admin'){
         err.style.display='block';
         err.textContent='Usuario o contraseña incorrectos';
         return;
       }
-      // Step 2: now read Firestore (auth token is active)
-      const usersRef = collection(db, 'users');
-      const snapshot = await getDocs(usersRef);
-      let userDoc = null;
-      snapshot.forEach(d => {
-        const data = d.data();
-        if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin') {
-          userDoc = d;
-        }
-      });
-      if(!userDoc){
-        err.style.display='block';
-        err.textContent='Usuario no encontrado';
-        return;
-      }
-      const userData = userDoc.data();
       err.style.display='none';
-      window.S.currentUser = {id: userDoc.id, ...userData};
+      window.S.currentUser = {id: docId, ...userData};
       hide('admin-login-screen');
       show('admin-screen');
       document.getElementById('admin-nav-username').textContent = userData.username;
