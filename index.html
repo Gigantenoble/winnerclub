@@ -143,39 +143,46 @@
       // Step 1: find admin profile in Firestore to get their real Firebase Auth email
       // We need to sign in anonymously first just to read, then re-auth with real credentials
       // Use the stored email from Firestore user doc
-      // Authenticate with Firebase Auth first
+      // Step 1: Authenticate with Firebase Auth
       const adminEmail = u.toLowerCase() + '@winnerclub.internal';
+      let firebaseUid = null;
       try{
-        await signInWithEmailAndPassword(auth, adminEmail, p);
+        const cred = await signInWithEmailAndPassword(auth, adminEmail, p);
+        firebaseUid = cred.user.uid;
       }catch(authErr){
         err.style.display='block';
         err.textContent='Usuario o contraseña incorrectos';
-        console.error('Firebase Auth error:', authErr.code, authErr.message);
         return;
       }
-      // Now read Firestore with active auth token
-      // Use known admin UID directly to avoid full collection scan
-      const ADMIN_UID = 'oIMxomVR85aSuetQqJdAuWStGsj2';
+      // Step 2: Read admin profile from Firestore using Firebase UID
+      // Try direct lookup by UID first, then fallback to username search
       let userData = null;
-      let docId = null;
+      let docId = firebaseUid;
       try{
-        const directDoc = await getDoc(doc(db,'users',ADMIN_UID));
-        if(directDoc.exists()){
+        const directDoc = await getDoc(doc(db,'users',firebaseUid));
+        if(directDoc.exists() && directDoc.data().role === 'admin'){
           userData = directDoc.data();
-          docId = ADMIN_UID;
         }
       }catch(e){}
-      // Fallback: search by username
+      // Fallback: search by username (handles mismatched UIDs)
       if(!userData){
-        const snapshot = await getDocs(collection(db,'users'));
-        snapshot.forEach(d => {
-          const data = d.data();
-          if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin'){
-            userData = data; docId = d.id;
-          }
-        });
+        try{
+          const snapshot = await getDocs(collection(db,'users'));
+          snapshot.forEach(d => {
+            const data = d.data();
+            if(data.username && data.username.toLowerCase() === u.toLowerCase() && data.role === 'admin'){
+              userData = data; docId = d.id;
+            }
+          });
+        }catch(e){}
       }
-      if(!userData || userData.role !== 'admin'){
+      if(!userData){
+        // Auth succeeded but no Firestore profile — create one automatically
+        userData = { username: u, role: 'admin', email: adminEmail, nombre: '', telefono: '' };
+        try{ await setDoc(doc(db,'users',firebaseUid), {...userData, createdAt: serverTimestamp()}); }catch(e){}
+        docId = firebaseUid;
+      }
+      if(userData.role !== 'admin'){
         err.style.display='block';
         err.textContent='Usuario o contraseña incorrectos';
         return;
