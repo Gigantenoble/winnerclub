@@ -290,7 +290,7 @@
   };
 
   // ── Submit deposit ──
-  window.submitDepositFirebase = async function(name, amount, fileData){
+  window.submitDepositFirebase = async function(name, amount, fileData, platform){
     const uid = window.S.currentUser.id;
     // Compress image if too large (Firestore has 1MB doc limit)
     let compressedFile = null;
@@ -319,6 +319,7 @@
       type: 'deposit',
       fullName: name,
       amount: amount,
+      platform: platform||'',
       fileData: compressedFile,
       status: 'pending',
       tip: 0,
@@ -457,6 +458,7 @@
         if(el) el.textContent=cfg.gamesLabel;
       }
       if(cfg.whatsapp) window.S.whatsappSupportLink=cfg.whatsapp;
+      if(cfg.platforms) window.S.platforms=cfg.platforms;
       // Update WA button in topnav
       const waBtn=document.getElementById('btn-wa-topnav');
       if(waBtn) waBtn.style.display=cfg.whatsapp?'flex':'none';
@@ -1452,6 +1454,11 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
       <div class="cbu-hint"><span class="cbu-hint-icon">ℹ️</span><span>Transferí el monto a este CBU/CVU desde tu banco o billetera. Una vez acreditada, volvé aquí y completá la solicitud con el comprobante.</span></div>
     </div>
     <div class="modal-section">Datos de tu solicitud</div>
+    <div class="field-group" id="platforms-field" style="display:none">
+      <div class="field-label">Plataforma utilizada</div>
+      <div id="dep-platforms-btns" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+      <input type="hidden" id="dep-platform-selected" value="">
+    </div>
     <div class="field-group"><div class="field-label">Nombre completo</div><input class="field-input" type="text" id="dep-name" placeholder="Ej: Juan Pérez"></div>
     <div class="field-group"><div class="field-label">Monto transferido</div><div class="money-wrap"><span class="money-prefix">$</span><input class="field-input money-input" type="text" id="dep-amount" placeholder="0" inputmode="numeric" oninput="handleMoneyInput(this)"></div></div>
     <div class="field-group">
@@ -1793,6 +1800,14 @@ window.cbuConfig = window.cbuConfig || {holder:'WinnerClub S.A.', number:'000000
           <button class="btn-save-link" onclick="saveGamesLink()">💾 Guardar link de juegos</button>
         </div>
       
+        <div class="section-label" style="margin-top:8px">Plataformas de carga</div>
+        <div class="link-setting-card">
+          <p style="font-size:13px;color:var(--text3);margin-bottom:14px">Estos botones aparecen en el formulario de carga. El jugador selecciona desde qué plataforma transfiere.</p>
+          <div id="platforms-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+          <button class="btn-save-link" onclick="addPlatformField()" style="background:transparent;border:1px dashed var(--gold);color:var(--gold);margin-bottom:10px">+ Agregar plataforma</button>
+          <button class="btn-save-link" onclick="savePlatforms()">💾 Guardar plataformas</button>
+        </div>
+
         <div class="section-label">WhatsApp de emergencia</div>
         <div class="link-setting-card">
           <div class="page-sub" style="margin-bottom:14px">Este link aparece como botón circular de WhatsApp arriba en el panel del jugador.</div>
@@ -1953,6 +1968,7 @@ window.S.tickets = window.S.tickets || [];
 window.S.nextId = window.S.nextId || 6;
 window.S.nextTktId = window.S.nextTktId || 3;
 window.S.whatsappSupportLink = window.S.whatsappSupportLink || '';
+window.S.platforms = window.S.platforms || [];
 const S = window.S;
 
 // ======= CBU =======
@@ -1973,6 +1989,33 @@ async function saveCBUConfig(){
   try{await window.saveConfigFirebase({cbuHolder:cbuConfig.holder,cbuNumber:cbuConfig.number});}catch(e){console.error(e);}
   toast('CBU guardado correctamente','✓');
 }
+function addPlatformField(name=''){
+  const list = document.getElementById('platforms-list');
+  const id = 'plat-' + Date.now();
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:8px;align-items:center';
+  div.innerHTML = `<input class="field-input" type="text" id="${id}" placeholder="Ej: Mercado Pago" value="${name}" style="flex:1">
+    <button onclick="this.parentElement.remove()" style="background:rgba(255,50,50,0.15);border:1px solid rgba(255,50,50,0.3);color:#ff6b6b;border-radius:6px;padding:6px 10px;cursor:pointer">✕</button>`;
+  list.appendChild(div);
+}
+
+async function savePlatforms(){
+  const inputs = document.querySelectorAll('#platforms-list input');
+  const platforms = Array.from(inputs).map(i=>i.value.trim()).filter(v=>v);
+  try{
+    await window.saveConfigFirebase({platforms});
+    window.S.platforms = platforms;
+    toast('Plataformas guardadas','✓');
+  }catch(e){ toast('Error al guardar','⚠️'); }
+}
+
+function renderPlatformFields(platforms){
+  const list = document.getElementById('platforms-list');
+  if(!list) return;
+  list.innerHTML = '';
+  (platforms||[]).forEach(p => addPlatformField(p));
+}
+
 async function saveGamesLink(){
   const url=document.getElementById('cfg-games-url').value.trim();
   const label=document.getElementById('cfg-btn-label').value.trim();
@@ -2029,7 +2072,28 @@ function actionButtons(req,mini){
 }
 
 // ======= MODALS =======
-function openModal(id){document.getElementById(id).classList.add('open')}
+function renderDepositPlatforms(){
+  const platforms = window.S.platforms || [];
+  const field = document.getElementById('platforms-field');
+  const btns = document.getElementById('dep-platforms-btns');
+  const hidden = document.getElementById('dep-platform-selected');
+  if(!field||!btns) return;
+  if(!platforms.length){ field.style.display='none'; return; }
+  field.style.display='block';
+  hidden.value='';
+  btns.innerHTML = platforms.map(p =>
+    `<button type="button" onclick="selectPlatform(this,'${p}')" style="padding:8px 16px;border-radius:20px;border:1.5px solid var(--gold);background:transparent;color:var(--text);cursor:pointer;font-size:13px;transition:all 0.2s">${p}</button>`
+  ).join('');
+}
+function selectPlatform(btn,name){
+  document.querySelectorAll('#dep-platforms-btns button').forEach(b=>{b.style.background='transparent';b.style.color='var(--text)';});
+  btn.style.background='var(--gold)';btn.style.color='#000';
+  document.getElementById('dep-platform-selected').value=name;
+}
+function openModal(id){
+  if(id==='modal-deposit') renderDepositPlatforms();
+  document.getElementById(id).classList.add('open');
+}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 function openPassModal(){document.getElementById('pass-cur').value='';document.getElementById('pass-new').value='';document.getElementById('pass-confirm').value='';document.getElementById('pass-bar').style.width='0';document.getElementById('pass-lbl').textContent='';openModal('pass-modal');}
 function openDatosModal(){const u=S.currentUser;document.getElementById('dat-nombre').value=u.nombre||'';document.getElementById('dat-tel').value=u.telefono||'';openModal('datos-modal');}
@@ -2038,9 +2102,14 @@ function openChpassModal(uid){chpassTargetId=String(uid);const u=userByid(uid);d
 // ======= SUBMIT =======
 async function submitDeposit(){
   const name=document.getElementById('dep-name').value.trim(),amt=getMoneyValue('dep-amount');
-  if(!name){toast('Ingresá el nombre completo','⚠️');return;}if(!amt){toast('Ingresá un monto válido','⚠️');return;}if(!selectedFileData){toast('Adjuntá el comprobante','⚠️');return;}
+  const platform=document.getElementById('dep-platform-selected')?document.getElementById('dep-platform-selected').value:'';
+  const platforms=window.S.platforms||[];
+  if(!name){toast('Ingresá el nombre completo','⚠️');return;}
+  if(!amt){toast('Ingresá un monto válido','⚠️');return;}
+  if(platforms.length && !platform){toast('Seleccioná la plataforma utilizada','⚠️');return;}
+  if(!selectedFileData){toast('Adjuntá el comprobante','⚠️');return;}
   try{
-    await window.submitDepositFirebase(name, amt, selectedFileData.dataUrl);
+    await window.submitDepositFirebase(name, amt, selectedFileData.dataUrl, platform);
     closeModal('modal-deposit');
     await window.loadUserData();
     toast('Solicitud de carga enviada','✓');
@@ -2358,7 +2427,7 @@ function showAdminPage(p,el){
   if(p==='solicitudes')applyFilters();if(p==='usuarios')renderAdminUsers();
   if(p==='overview'){updateAdminStats();renderAdminPending();}
   if(p==='tickets'){renderAdminTickets();updateNotifBadges();}
-
+  if(p==='config'){renderPlatformFields(window.S.platforms||[]);}
   setTabActive('admin',p);
 }
 
@@ -2379,6 +2448,7 @@ function adminReqRow(r,mini){
     <td style="white-space:nowrap;font-size:12px">${fmtDatetime(r.datetime||r.date)}</td>
     <td style="font-weight:700;color:var(--gold2);font-family:'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px">${usernameByid(r.userId)}</td>
     <td>${typeBadge(r.type)}</td><td style="color:var(--text)">${r.fullName||'—'}</td>
+    <td style="color:var(--text3);font-size:12px">${r.platform||'—'}</td>
     <td>${cbuCell(r.cbu)}</td><td style="font-weight:700;color:var(--gold2)">${fmtAmt(r.amount)}</td>
     <td>${tipCell(r)}</td><td>${comprobanteCell(r)}</td><td>${statusBadge(r.status)}</td>
     <td>${actionButtons(r,mini)}</td>
